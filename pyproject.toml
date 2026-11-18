@@ -44,6 +44,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live: marks tests that require live external LLM API access (skipped in offline CI)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::pytest.PytestDeprecationWarning",

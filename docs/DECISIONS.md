@@ -110,7 +110,23 @@ The lightweight SQLite column auto-migration in `agentreplay/db.py` (`ALTER TABL
 is strictly a dev-only convenience to support fast local schema evolution without wiping existing traces.
 Production environments must disable this mechanism and execute version-controlled schema migrations using Alembic.
 
-## Known limitations (Phase 1-4)
+## D17 – Real LLM Adapter, Determinism, & Non-Deterministic Variance
+The agent framework supports live OpenAI-compatible endpoints (`demo_agent/llm.py`) alongside the deterministic stub:
+- **Provider Switching**: Controlled by `LLM_PROVIDER=stub|openai_compatible` (default: `stub`). CI and all unit tests run 100% offline without network access.
+- **Pydantic Validation & Retries**: Decisions are validated against `DecisionOutput(decision="approve"|"deny", reason=str)`. On malformed JSON or validation failure, it retries once with explicit JSON instructions; subsequent failures are logged as event errors.
+- **Rate Limit Resilience**: Implements exponential backoff respecting HTTP 429 `Retry-After` headers.
+- **Secret Isolation**: `LLM_API_KEY` and `Authorization` headers are stripped prior to event storage. No database column stores secrets.
+- **Prompt Determinism**: Computed `days_old` is injected into the prompt, strictly excluding volatile values (such as today's date, ISO timestamps, or UUIDs) to ensure prompt reproducibility across dates.
+
+### Real-LLM Empirical Variance (Groq `openai/gpt-oss-120b`)
+Running `scripts/live_check.py` 10 times with `temperature=0.0` against Groq on the stale policy scenario (order 12 days old under 30-day policy) revealed:
+- **Decision Consistency**: 10/10 runs approved the refund (100% approval rate, 0% denial, 0% error).
+- **Token Variance**: 10/10 runs consumed exactly 238 prompt tokens and 73 completion tokens (311 total tokens).
+- **Latency Variance**: Mean latency was 866.6 ms, with an observed minimum of 655 ms and maximum of 1082 ms.
+- **Replay Fidelity**: Replaying recorded real-LLM trace #95 with `ReplayEngine.replay_agent` matched 5/5 events (100.0% fidelity) with zero live network calls.
+- **Fork Safety**: Forking trace #95 at Step 3 with the 7-day policy replayed steps 1–2, applied the override at step 3, invoked the live LLM at step 4 to yield `DENY`, and kept all side-effecting tools sandboxed.
+
+## Known limitations (Phase 1-4.5)
 - Refund-domain template test generation: Test generation is currently a domain-specific template that
   directly imports `demo_agent` internals (mock orders, ledger reset, `issue_refund` tools) and synthesizes
   refund policy invariants. It does not generalise to arbitrary agents yet.

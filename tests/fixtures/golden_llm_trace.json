@@ -1,0 +1,282 @@
+{
+  "run_id": "0e6de96d-18c7-4649-b244-0c3a6db9a093",
+  "agent_name": "refund_agent",
+  "description": "Live check run #1",
+  "meta": {
+    "stale_policy": true,
+    "policy_days_override": null
+  },
+  "status": "completed",
+  "run_type": "original",
+  "final_output": {
+    "result": "approve",
+    "customer": "Alice Smith",
+    "order_id": "O103",
+    "amount": 79.5,
+    "days_old": 12,
+    "refund": {
+      "status": "refund_issued",
+      "order_id": "O103",
+      "amount": 79.5
+    }
+  },
+  "agent_version": null,
+  "steps": [
+    {
+      "index": 1,
+      "node_name": "get_customer",
+      "state_before": {
+        "customer_id": "C001",
+        "order_id": "O103"
+      },
+      "state_after": {
+        "customer": {
+          "customer_id": "C001",
+          "name": "Alice Smith",
+          "email": "<REDACTED_EMAIL>"
+        }
+      },
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost": 0.0,
+      "latency_ms": 1.593699969816953,
+      "events": [
+        {
+          "seq": 1,
+          "kind": "tool_call",
+          "input_hash": "62ea02e423c7fe632f7e8af1d96ea35e049b33dcb90e9963e2416b6d75b3d885",
+          "raw_input": "{\"name\": \"get_customer\", \"args\": {\"customer_id\": \"C001\"}}",
+          "output": {
+            "customer_id": "C001",
+            "name": "Alice Smith",
+            "email": "<REDACTED_EMAIL>"
+          },
+          "raw_output": "{\"customer_id\": \"C001\", \"name\": \"Alice Smith\", \"email\": \"<REDACTED_EMAIL>\"}",
+          "error": null,
+          "source": "recorded"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "node_name": "get_orders",
+      "state_before": {
+        "customer": {
+          "customer_id": "C001",
+          "name": "Alice Smith",
+          "email": "<REDACTED_EMAIL>"
+        }
+      },
+      "state_after": {
+        "customer": {
+          "customer_id": "C001",
+          "name": "Alice Smith",
+          "email": "<REDACTED_EMAIL>"
+        },
+        "orders": [
+          {
+            "order_id": "O100",
+            "customer_id": "C001",
+            "amount": 49.99,
+            "order_date": "2026-11-15",
+            "item": "Widget Pro"
+          },
+          {
+            "order_id": "O101",
+            "customer_id": "C001",
+            "amount": 199.0,
+            "order_date": "2026-11-08",
+            "item": "Gadget Max"
+          },
+          {
+            "order_id": "O103",
+            "customer_id": "C001",
+            "amount": 79.5,
+            "order_date": "2026-11-06",
+            "item": "Super Gizmo"
+          }
+        ],
+        "target_order": {
+          "order_id": "O103",
+          "customer_id": "C001",
+          "amount": 79.5,
+          "order_date": "2026-11-06",
+          "item": "Super Gizmo"
+        }
+      },
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost": 0.0,
+      "latency_ms": 0.41390000842511654,
+      "events": [
+        {
+          "seq": 1,
+          "kind": "tool_call",
+          "input_hash": "1e742864945c79105f95c70f5860a830e7578a10f3947d78fcaa853117079f28",
+          "raw_input": "{\"name\": \"get_orders\", \"args\": {\"customer_id\": \"C001\"}}",
+          "output": {
+            "orders": [
+              {
+                "order_id": "O100",
+                "customer_id": "C001",
+                "amount": 49.99,
+                "order_date": "2026-11-15",
+                "item": "Widget Pro"
+              },
+              {
+                "order_id": "O101",
+                "customer_id": "C001",
+                "amount": 199.0,
+                "order_date": "2026-11-08",
+                "item": "Gadget Max"
+              },
+              {
+                "order_id": "O103",
+                "customer_id": "C001",
+                "amount": 79.5,
+                "order_date": "2026-11-06",
+                "item": "Super Gizmo"
+              }
+            ]
+          },
+          "raw_output": "{\"orders\": [{\"order_id\": \"O100\", \"customer_id\": \"C001\", \"amount\": 49.99, \"order_date\": \"2026-11-15\", \"item\": \"Widget Pro\"}, {\"order_id\": \"O101\", \"customer_id\": \"C001\", \"amount\": 199.0, \"order_date\": \"2026-11-08\", \"item\": \"Gadget Max\"}, {\"order_id\": \"O103\", \"customer_id\": \"C001\", \"amount\": 79.5, \"order_date\": \"2026-11-06\", \"item\": \"Super Gizmo\"}]}",
+          "error": null,
+          "source": "recorded"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "node_name": "read_refund_policy",
+      "state_before": {
+        "target_order": {
+          "order_id": "O103",
+          "customer_id": "C001",
+          "amount": 79.5,
+          "order_date": "2026-11-06",
+          "item": "Super Gizmo"
+        }
+      },
+      "state_after": {
+        "target_order": {
+          "order_id": "O103",
+          "customer_id": "C001",
+          "amount": 79.5,
+          "order_date": "2026-11-06",
+          "item": "Super Gizmo"
+        },
+        "policy": "Refunds are accepted within 30 days of the order date. No refunds will be issued for orders older than 30 days."
+      },
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost": 0.0,
+      "latency_ms": 0.3996999585069716,
+      "events": [
+        {
+          "seq": 1,
+          "kind": "tool_call",
+          "input_hash": "99116a38ba3aaaddcad2b5ae849a5df2098af45a6896c0f7332a8ea3c59cd033",
+          "raw_input": "{\"name\": \"read_refund_policy\", \"args\": {\"stale\": true}}",
+          "output": {
+            "policy": "Refunds are accepted within 30 days of the order date. No refunds will be issued for orders older than 30 days."
+          },
+          "raw_output": "{\"policy\": \"Refunds are accepted within 30 days of the order date. No refunds will be issued for orders older than 30 days.\"}",
+          "error": null,
+          "source": "recorded"
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "node_name": "llm_decide",
+      "state_before": {
+        "target_order": {
+          "order_id": "O103",
+          "customer_id": "C001",
+          "amount": 79.5,
+          "order_date": "2026-11-06",
+          "item": "Super Gizmo"
+        },
+        "policy": "Refunds are accepted within 30 days of the order date. No refunds will be issued for orders older than 30 days.",
+        "days_old": 12
+      },
+      "state_after": {
+        "llm_decision": "DECISION: approve  REASON: Order is 12 days old, within the 30\u2011day refund window.",
+        "decision": "approve",
+        "days_old": 12
+      },
+      "model": "openai/gpt-oss-120b",
+      "input_tokens": 238,
+      "output_tokens": 73,
+      "cost": 0.0,
+      "latency_ms": 1082.3524000006728,
+      "events": [
+        {
+          "seq": 1,
+          "kind": "llm_call",
+          "input_hash": "d1117bcc2da913f68aad06c6fa1e9931e35cb9e549553380cfab7787f162f345",
+          "raw_input": "{\"prompt\": \"Customer: Alice Smith\\nOrder: O103  Amount: $79.5\\nDAYS_OLD: 12\\nPolicy: Refunds are accepted within 30 days of the order date. No refunds will be issued for orders older than 30 days.\\nDecide whether to approve or deny this refund request. Return JSON with 'decision' ('approve' or 'deny') and 'reason'.\"}",
+          "output": {
+            "response": "DECISION: approve  REASON: Order is 12 days old, within the 30\u2011day refund window.",
+            "decision": "approve",
+            "reason": "Order is 12 days old, within the 30\u2011day refund window.",
+            "model": "openai/gpt-oss-120b",
+            "input_tokens": 238,
+            "output_tokens": 73,
+            "total_tokens": 311,
+            "latency_ms": 1082.3524000006728,
+            "cost": 0.0
+          },
+          "raw_output": "{\"response\": \"DECISION: approve  REASON: Order is 12 days old, within the 30\u2011day refund window.\", \"decision\": \"approve\", \"reason\": \"Order is 12 days old, within the 30\u2011day refund window.\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 238, \"output_tokens\": 73, \"total_tokens\": 311, \"latency_ms\": 1082.3524000006728, \"cost\": 0.0}",
+          "error": null,
+          "source": "recorded"
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "node_name": "issue_refund",
+      "state_before": {
+        "decision": "approve",
+        "order": {
+          "order_id": "O103",
+          "customer_id": "C001",
+          "amount": 79.5,
+          "order_date": "2026-11-06",
+          "item": "Super Gizmo"
+        }
+      },
+      "state_after": {
+        "refund_result": {
+          "status": "refund_issued",
+          "order_id": "O103",
+          "amount": 79.5
+        }
+      },
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost": 0.0,
+      "latency_ms": 0.7252999930642545,
+      "events": [
+        {
+          "seq": 1,
+          "kind": "tool_call",
+          "input_hash": "a94fb58a60adb81e55c6cf2cd9dc806f558be1cfbc2019ce7544a8b63842366a",
+          "raw_input": "{\"name\": \"issue_refund\", \"args\": {\"order_id\": \"O103\", \"amount\": 79.5, \"reason\": \"approved by agent\"}}",
+          "output": {
+            "status": "refund_issued",
+            "order_id": "O103",
+            "amount": 79.5
+          },
+          "raw_output": "{\"status\": \"refund_issued\", \"order_id\": \"O103\", \"amount\": 79.5}",
+          "error": null,
+          "source": "recorded"
+        }
+      ]
+    }
+  ]
+}

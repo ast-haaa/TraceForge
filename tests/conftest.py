@@ -12,6 +12,7 @@ import os
 # Override the database URL to in-memory SQLite for all tests.
 # This module is loaded first by pytest (before test modules).
 os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["LLM_PROVIDER"] = "stub"
 
 # Now safe to import agentreplay
 import pytest

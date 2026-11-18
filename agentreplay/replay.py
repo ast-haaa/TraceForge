@@ -290,6 +290,50 @@ class ReplayContext:
                 return ev.output["response"]
             return str(ev.output)
 
+        def mock_llm_call(prompt: str, **kwargs: Any) -> Any:
+            raw_input = {"prompt": prompt}
+            h = compute_input_hash(redact_sensitive(raw_input))
+            ev = matcher.match("llm_decide", h, kind=EventKind.LLM_CALL)
+            if ev.error:
+                raise RuntimeError(ev.error)
+            dec = "approve"
+            reason = ""
+            model = "replayed-model"
+            p_toks = 0
+            c_toks = 0
+            lat = 0.0
+            cost = 0.0
+            if isinstance(ev.output, dict):
+                dec = ev.output.get("decision")
+                if not dec:
+                    resp_str = str(ev.output.get("response", ""))
+                    dec = "approve" if "DECISION: approve" in resp_str else "deny"
+                reason = ev.output.get("reason") or ev.output.get("response", "")
+                model = ev.output.get("model", model)
+                p_toks = ev.output.get("input_tokens", 0)
+                c_toks = ev.output.get("output_tokens", 0)
+                lat = ev.output.get("latency_ms", ev.output.get("latency", 0.0))
+                cost = ev.output.get("cost", 0.0)
+            elif isinstance(ev.output, str):
+                dec = "approve" if "DECISION: approve" in ev.output else "deny"
+                reason = ev.output
+
+            from demo_agent.llm import LLMResponse
+            return LLMResponse(
+                decision=dec,
+                reason=reason,
+                model=model,
+                prompt_tokens=p_toks,
+                completion_tokens=c_toks,
+                total_tokens=p_toks + c_toks,
+                latency_ms=lat,
+                cost=cost,
+                raw_response=ev.output,
+            )
+
+        def mock_get_llm() -> Callable[..., Any]:
+            return mock_llm_call
+
         # Apply patches across both demo_agent.tools and demo_agent.agent
         targets = [
             ("demo_agent.tools.get_customer", mock_get_customer),
@@ -301,6 +345,8 @@ class ReplayContext:
             ("demo_agent.tools.issue_refund", mock_issue_refund),
             ("demo_agent.agent.issue_refund", mock_issue_refund),
             ("demo_agent.agent._stub_llm", mock_stub_llm),
+            ("demo_agent.llm.get_llm", mock_get_llm),
+            ("demo_agent.agent.get_llm", mock_get_llm),
         ]
 
         for target_str, mock_fn in targets:

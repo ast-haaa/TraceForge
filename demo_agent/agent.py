@@ -18,44 +18,18 @@ from typing import Any
 from agentreplay.models import EventKind, EventSource
 from agentreplay.sdk import record_trace
 
+from .llm import get_llm, stub_llm
 from .tools import get_customer, get_orders, issue_refund, read_refund_policy
 
 # ---------------------------------------------------------------------------
-# Pure-Python LLM stub  (no API key needed for the demo)
+# Pure-Python LLM stub  (backward-compatible alias)
 # ---------------------------------------------------------------------------
 
 
 def _stub_llm(prompt: str, *, policy_days: int | None = None) -> str:
-    """Simulate an LLM that decides whether to issue a refund.
-
-    Real implementations would call an OpenAI-compatible endpoint here.
-    The stub reads ``ORDER_DAYS_OLD`` injected into the prompt by the agent
-    so we can test boundary conditions deterministically.
-    """
-    # Parse the number of days from the prompt (injected by the agent)
-    days_old: int | None = None
-    for line in prompt.splitlines():
-        if "DAYS_OLD:" in line:
-            try:
-                days_old = int(line.split("DAYS_OLD:")[-1].strip())
-            except ValueError:
-                pass
-
-    if days_old is None:
-        return "DECISION: approve  REASON: unable to determine order age"
-
-    if policy_days is None:
-        import re
-        policy_match = re.search(r"within (\d+) days", prompt, re.IGNORECASE)
-        if policy_match:
-            policy_days = int(policy_match.group(1))
-        else:
-            policy_days = 7
-
-    if days_old <= policy_days:
-        return f"DECISION: approve  REASON: order is {days_old} day(s) old, within the {policy_days}-day window"
-    else:
-        return f"DECISION: deny  REASON: order is {days_old} day(s) old, outside the {policy_days}-day window"
+    """Backward-compatible wrapper around stub_llm."""
+    res = stub_llm(prompt, policy_days=policy_days)
+    return f"DECISION: {res.decision}  REASON: {res.reason}"
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +248,8 @@ def run_refund_agent_from_step(
                 f"Order: {order_id}  Amount: ${ord_amt}\n"
                 f"DAYS_OLD: {days_old}\n"
                 f"Policy: {policy_text}\n"
-                f"Decide whether to approve or deny this refund request."
+                f"Decide whether to approve or deny this refund request. "
+                f"Return JSON with 'decision' ('approve' or 'deny') and 'reason'."
             )
             ev_source = EventSource.MOCKED if (start_step == 4 and overrides) else (
                 EventSource.RECORDED if start_step == 1 else EventSource.LIVE
@@ -284,22 +259,53 @@ def run_refund_agent_from_step(
             "llm_decide",
             state_before={"target_order": order, "policy": policy_text, "days_old": days_old},
         )
-        llm_response = _stub_llm(prompt, policy_days=policy_days_override)
+        llm_fn = get_llm()
+        llm_resp = llm_fn(
+            prompt,
+            policy_days=policy_days_override,
+            model=model_override,
+        )
         latency = (time.perf_counter() - t0) * 1000
+
+        # Under a replay session, preserve recorded latency so event outputs match 100%
+        from agentreplay.sdk import _active_replay_session
+        if _active_replay_session.get() is not None and getattr(llm_resp, "latency_ms", 0.0) > 0:
+            latency = llm_resp.latency_ms
+
+        llm_response_str = f"DECISION: {llm_resp.decision}  REASON: {llm_resp.reason}"
+        out_dict = {
+            "response": llm_response_str,
+            "decision": llm_resp.decision,
+            "reason": llm_resp.reason,
+            "model": llm_resp.model,
+            "input_tokens": llm_resp.prompt_tokens,
+            "output_tokens": llm_resp.completion_tokens,
+            "total_tokens": llm_resp.total_tokens,
+            "latency_ms": latency,
+            "cost": llm_resp.cost,
+        }
 
         rec.record_event(
             kind=EventKind.LLM_CALL,
             raw_input={"prompt": prompt},
-            output={"response": llm_response, "model": model_name},
+            output=out_dict,
+            error=llm_resp.error,
             source=ev_source,
         )
         rec.end_step(
-            state_after={"llm_decision": llm_response, "days_old": days_old},
-            model=model_name,
+            state_after={
+                "llm_decision": llm_response_str,
+                "decision": llm_resp.decision,
+                "days_old": days_old,
+            },
+            model=llm_resp.model,
+            input_tokens=llm_resp.prompt_tokens,
+            output_tokens=llm_resp.completion_tokens,
+            cost=llm_resp.cost,
             latency_ms=latency,
         )
 
-        decision = "approve" if "DECISION: approve" in llm_response else "deny"
+        decision = llm_resp.decision
 
     # ----------------------------------------------------------------
     # Step 5: issue_refund (only if approved)

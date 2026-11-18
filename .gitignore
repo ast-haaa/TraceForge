@@ -9,3 +9,5 @@ pytest_out.txt
 *.egg-info/
 generated_tests/
 .env
+.env.*
+!.env.example
