@@ -134,7 +134,7 @@ def test_generated_test_fails_on_buggy_and_passes_on_fixed(
 def test_positive_control_present_in_generated_test(
     db_session, failed_and_fixed_traces, workspace_tmp_dir
 ):
-    """Generated test must contain positive control for within-window orders (days_old=3)."""
+    """Generated test must contain positive control for within-window orders (boundary days_old=7)."""
     failed, fixed = failed_and_fixed_traces
 
     gen_test = generate_test(
@@ -143,8 +143,8 @@ def test_positive_control_present_in_generated_test(
 
     code = gen_test.test_code
     assert "test_positive_control_within_window_refund_approved" in code
-    assert "days_old=3" in code or "days=3" in code
-    assert "assert res.get(\"result\") == \"approve\"" in code
+    assert "days_old=7" in code or "days=7" in code
+    assert 'assert res.get("result") == "approve"' in code
 
 
 def test_always_deny_agent_fails_generated_test(
@@ -160,10 +160,10 @@ def test_always_deny_agent_fails_generated_test(
         failed.id, fixed.id, db=db_session, output_dir=workspace_tmp_dir
     )
 
-    # Run generated test under AGENT_VARIANT=always_deny in subprocess
+    # Run generated test under AGENTREPLAY_AGENT="demo_agent.variants:always_deny_agent" in subprocess
     env = os.environ.copy()
     env["PYTHONPATH"] = str(pathlib.Path(__file__).resolve().parent.parent)
-    env["AGENT_VARIANT"] = "always_deny"
+    env["AGENTREPLAY_AGENT"] = "demo_agent.variants:always_deny_agent"
 
     project_root = pathlib.Path(__file__).resolve().parent.parent
     cmd = [

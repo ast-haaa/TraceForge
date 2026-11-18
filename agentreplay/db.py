@@ -4,6 +4,7 @@
 DATABASE_URL defaults to a SQLite file in the project root.
 Set the DATABASE_URL environment variable to switch to Postgres.
 """
+import logging
 import os
 
 from sqlalchemy import create_engine
@@ -11,6 +12,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from .models import Base
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
@@ -45,5 +48,9 @@ def init_db() -> None:
                     if "rejection_reason" not in cols:
                         conn.exec_driver_sql("ALTER TABLE generated_tests ADD COLUMN rejection_reason TEXT;")
                     conn.commit()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "SQLite dev auto-migration encountered an error: %s",
+                    exc,
+                    exc_info=True,
+                )

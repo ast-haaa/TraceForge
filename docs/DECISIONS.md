@@ -83,7 +83,28 @@ variant (must fail) and the fixed variant (must pass), plus a positive control t
 agents (e.g. always-deny) are rejected. File paths strictly use integer trace IDs, code is never executed
 in-process via `exec()`, and all displays are HTML-escaped.
 
+### Values Derived from Traces vs. Template Constants
+- **Derived from Traces**:
+  - `failed_trace_id`, `fixed_trace_id`: Integer IDs of the failing run and verified fork run.
+  - `agent_name`: Derived from `failed_trace.agent_name`.
+  - `customer_id`: Target customer identifier extracted from trace input / final output.
+  - `amount`: Target transaction amount extracted from `failed_trace.final_output["amount"]`.
+  - `failed_days_old`: The actual failing order's age (e.g. 12 days) extracted from `failed_trace.final_output["days_old"]` or step state (not hardcoded).
+  - `item`: Item description extracted from the target order in trace state.
+  - `fixed_agent_version`: Version identifier recorded on `fixed_trace.agent_version`.
+- **Template Constants & Policy Boundary Rules**:
+  - Negative control boundary values: `8` (the immediate policy boundary: 7 + 1 days) and `30` (the outer window corresponding to the stale 30-day policy). Parametrized together with the trace-derived `failed_days_old` (e.g. `[8, 12, 30]`).
+  - Positive control boundary values: `7` (exact boundary day: within 7-day policy limit) and `3` (nominal inside-window order). Both must result in approved refunds and ledger modification.
+  - Side-effect assertions: Negative controls assert `result == 'deny'`, `refund_called == 0`, and empty ledger; positive controls assert `result == 'approve'`, `refund_called == 1`, and non-empty ledger.
+  - Fixture `agent_under_test`: Dynamically resolves the agent callable from `AGENTREPLAY_AGENT` (`"module:callable"`), ensuring generated tests contain no variant branches, `stale_policy` flags, or hardcoded result dictionaries.
+
+## D16 – Database Schema Evolution & Dev Auto-Migration
+The lightweight SQLite column auto-migration in `agentreplay/db.py` (`ALTER TABLE generated_tests ADD COLUMN ...`)
+is strictly a dev-only convenience to support fast local schema evolution without wiping existing traces.
+Production environments must disable this mechanism and execute version-controlled schema migrations using Alembic.
+
 ## Known limitations (Phase 1-4)
+- SQLite Auto-Migration is dev-only: In-place column additions via SQLite PRAGMA checks do not handle table restructuring, column renaming, or constraints; production databases must use Alembic.
 - Template-based test generation: Currently template-based and handles only side-effect invariants
   (e.g., verifying that a side-effecting tool such as `issue_refund` was incorrectly called in the buggy run
   and properly suppressed in the fixed run across boundary inputs). Complex conversational or non-side-effecting
