@@ -8,3 +8,4 @@ pytest_out.txt
 *.egg-info/
 *.egg-info/
 generated_tests/
+.env
