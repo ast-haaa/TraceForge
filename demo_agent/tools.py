@@ -6,6 +6,7 @@ issue_refund writes to a module-level fake ledger so tests can inspect it.
 """
 from __future__ import annotations
 
+import contextvars
 import datetime
 from typing import Any
 
@@ -13,15 +14,44 @@ from typing import Any
 # Fake in-memory ledger for issued refunds (reset between runs in tests)
 # ---------------------------------------------------------------------------
 _refund_ledger: list[dict[str, Any]] = []
+_sandbox_refund_ledger: list[dict[str, Any]] = []
+_active_sandbox: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_active_sandbox", default=False
+)
+
+
+def is_sandbox_active() -> bool:
+    """Return whether the fork safety sandbox is currently active."""
+    return _active_sandbox.get()
+
+
+def set_sandbox_mode(active: bool) -> contextvars.Token:
+    """Set the fork safety sandbox mode."""
+    return _active_sandbox.set(active)
+
+
+def reset_sandbox_mode(token: contextvars.Token) -> None:
+    """Reset the fork safety sandbox mode."""
+    _active_sandbox.reset(token)
 
 
 def reset_ledger() -> None:
     """Call this in test setUp to get a clean ledger."""
     _refund_ledger.clear()
+    _sandbox_refund_ledger.clear()
+
+
+def reset_sandbox_ledger() -> None:
+    """Reset only the sandbox ledger."""
+    _sandbox_refund_ledger.clear()
 
 
 def get_refund_ledger() -> list[dict[str, Any]]:
     return list(_refund_ledger)
+
+
+def get_sandbox_refund_ledger() -> list[dict[str, Any]]:
+    return list(_sandbox_refund_ledger)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +134,11 @@ def read_refund_policy(*, stale: bool = False) -> str:
 
 
 def issue_refund(order_id: str, amount: float, reason: str = "") -> dict[str, Any]:
-    """Pretend to issue a refund and record it in the fake ledger."""
+    """Pretend to issue a refund and record it in the fake ledger.
+
+    Safety: During a fork, sandbox mode is active and refunds are written
+    strictly to the sandbox ledger, leaving the production/real ledger unchanged.
+    """
     if order_id not in ORDERS:
         return {"error": f"Order {order_id!r} not found"}
     entry = {
@@ -113,5 +147,13 @@ def issue_refund(order_id: str, amount: float, reason: str = "") -> dict[str, An
         "reason": reason,
         "issued_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
+    if _active_sandbox.get():
+        _sandbox_refund_ledger.append(entry)
+        return {
+            "status": "refund_issued",
+            "order_id": order_id,
+            "amount": amount,
+            "sandbox": True,
+        }
     _refund_ledger.append(entry)
     return {"status": "refund_issued", "order_id": order_id, "amount": amount}

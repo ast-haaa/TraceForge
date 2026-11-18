@@ -54,7 +54,29 @@ Tests mock tool functions via `unittest.mock` and assert on *side effects*
 (e.g. `issue_refund` not called), not on the LLM's exact response text.
 This keeps tests stable across model versions.
 
-## Known limitations (Phase 1)
+## D11 – Fork Execution Model
+Forking branches an existing trace at `step_index`:
+1. Steps prior to `step_index` are replayed from recording (`source=EventSource.REPLAYED`).
+2. At `step_index`, overrides are applied (replace tool output, prompt, or model; `source=EventSource.MOCKED`).
+3. Steps after `step_index` run live code forward from restored `Step.state_before` (`source=EventSource.LIVE`).
+Lineage is maintained via `Trace.parent_trace_id` and `Trace.fork_step`.
+
+## D12 – Side-effect Sandbox Isolation
+During a fork, side-effecting operations (such as `issue_refund`) write strictly to an isolated
+`_sandbox_refund_ledger`, leaving production and real ledgers completely untouched.
+
+## D13 – UNRECORDED_CALL Fail-Fast Policy
+If a forked run attempts a call that has no recording and no user-supplied mock, the fork stops
+immediately. The trace is marked `status=FAILED` with an explicit `UNRECORDED_CALL` error listing
+the node, kind, and input hash. Plain software determinism never guesses or hallucinates fallbacks.
+
+## D14 – Event-by-Event Diff Engine
+`diff_traces()` compares two traces event by event, identifying the exact `first_divergent_step`,
+`first_divergent_node`, and full set of `changed_events`. The server-rendered UI presents
+aligned side-by-side steps with soft red (#ffeef0) for the original and soft green (#e6ffed) for
+the fork, strictly preserving HTML escaping without `|safe`.
+
+## Known limitations (Phase 1-3)
 - No streaming ingest endpoint yet (SDK writes directly to DB).
 - No auth on the FastAPI endpoints.
 - Trace viewer has no pagination; will be slow with many traces.
