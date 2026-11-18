@@ -83,6 +83,13 @@ variant (must fail) and the fixed variant (must pass), plus a positive control t
 agents (e.g. always-deny) are rejected. File paths strictly use integer trace IDs, code is never executed
 in-process via `exec()`, and all displays are HTML-escaped.
 
+> **Refund-Domain Template Notice:**
+> The current test generator (`agentreplay/test_gen.py`) is intentionally a **refund-domain template**
+> tailored to the LangGraph Refund Agent. It imports `demo_agent` internals (e.g. `ORDERS`, `demo_agent.tools`,
+> `issue_refund`, and `reset_ledger`) and generates assertions based on refund policy boundaries (`days_old`).
+> It does **not** generalise to arbitrary or third-party agent architectures yet. Generalising test generation
+> to arbitrary agents will require semantic tool-effect schema extraction and LLM-assisted synthesis in future phases.
+
 ### Values Derived from Traces vs. Template Constants
 - **Derived from Traces**:
   - `failed_trace_id`, `fixed_trace_id`: Integer IDs of the failing run and verified fork run.
@@ -104,11 +111,10 @@ is strictly a dev-only convenience to support fast local schema evolution withou
 Production environments must disable this mechanism and execute version-controlled schema migrations using Alembic.
 
 ## Known limitations (Phase 1-4)
+- Refund-domain template test generation: Test generation is currently a domain-specific template that
+  directly imports `demo_agent` internals (mock orders, ledger reset, `issue_refund` tools) and synthesizes
+  refund policy invariants. It does not generalise to arbitrary agents yet.
 - SQLite Auto-Migration is dev-only: In-place column additions via SQLite PRAGMA checks do not handle table restructuring, column renaming, or constraints; production databases must use Alembic.
-- Template-based test generation: Currently template-based and handles only side-effect invariants
-  (e.g., verifying that a side-effecting tool such as `issue_refund` was incorrectly called in the buggy run
-  and properly suppressed in the fixed run across boundary inputs). Complex conversational or non-side-effecting
-  intermediate state invariants will require LLM-based synthesis in future iterations.
 - No streaming ingest endpoint yet (SDK writes directly to DB).
 - No auth on the FastAPI endpoints.
 - Trace viewer has no pagination; will be slow with many traces.
