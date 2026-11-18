@@ -76,7 +76,18 @@ the node, kind, and input hash. Plain software determinism never guesses or hall
 aligned side-by-side steps with soft red (#ffeef0) for the original and soft green (#e6ffed) for
 the fork, strictly preserving HTML escaping without `|safe`.
 
-## Known limitations (Phase 1-3)
+## D15 – Deterministic Test Generation & Subprocess Validation
+Generated regression tests derive their invariants deterministically from diff analysis between
+the failed and fixed runs. Tests are validated by running a pytest subprocess against both the buggy
+variant (must fail) and the fixed variant (must pass), plus a positive control to ensure over-blocking
+agents (e.g. always-deny) are rejected. File paths strictly use integer trace IDs, code is never executed
+in-process via `exec()`, and all displays are HTML-escaped.
+
+## Known limitations (Phase 1-4)
+- Template-based test generation: Currently template-based and handles only side-effect invariants
+  (e.g., verifying that a side-effecting tool such as `issue_refund` was incorrectly called in the buggy run
+  and properly suppressed in the fixed run across boundary inputs). Complex conversational or non-side-effecting
+  intermediate state invariants will require LLM-based synthesis in future iterations.
 - No streaming ingest endpoint yet (SDK writes directly to DB).
 - No auth on the FastAPI endpoints.
 - Trace viewer has no pagination; will be slow with many traces.

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AgentReplay – Generated Test #{{ test.id }}</title>
+<style>
+  body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 1100px;
+    margin: 2rem auto;
+    color: #222;
+    background: #fff;
+    padding: 0 1rem;
+  }
+  h1 { font-size: 1.5rem; margin-bottom: .4rem; }
+  .back { font-size: .88rem; margin-bottom: 1rem; }
+  a { color: #1a73e8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .meta {
+    font-size: .85rem;
+    color: #555;
+    margin-bottom: 1rem;
+  }
+  .badges {
+    display: flex;
+    gap: .8rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 1.2rem;
+  }
+  .badge {
+    font-size: .78rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    color: #fff;
+  }
+  .badge-success { background: #28a745; }
+  .badge-failure { background: #d73a49; }
+  .badge-valid   { background: #0a8a4b; font-size: .82rem; }
+
+  .actions {
+    margin-bottom: 1.5rem;
+  }
+  .btn-download {
+    display: inline-block;
+    background: #2ea44f;
+    color: #fff;
+    padding: .4rem .9rem;
+    border-radius: 4px;
+    font-size: .85rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .btn-download:hover { background: #2c974b; text-decoration: none; }
+
+  .section-card {
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+  }
+  .card-header {
+    background: #f6f8fa;
+    padding: .6rem 1rem;
+    font-weight: 700;
+    font-size: .92rem;
+    border-bottom: 1px solid #d0d7de;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  pre {
+    margin: 0;
+    padding: .8rem 1rem;
+    background: #fafbfc;
+    font-size: .82rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 450px;
+    overflow: auto;
+  }
+  .output-box {
+    background: #fdfdfd;
+    font-family: monospace;
+    font-size: .8rem;
+    color: #333;
+    max-height: 350px;
+  }
+</style>
+</head>
+<body>
+<p class="back">
+  <a href="/trace/{{ test.trace_id }}">← Back to Trace #{{ test.trace_id }}</a> &nbsp;|&nbsp;
+  <a href="/">All Traces</a>
+</p>
+
+<h1>Generated Regression Test #{{ test.id }}</h1>
+<div class="meta">
+  Trace&nbsp;ID:&nbsp;<strong>#{{ test.trace_id }}</strong> &nbsp;|&nbsp;
+  Status:&nbsp;<strong>{{ test.status }}</strong> &nbsp;|&nbsp;
+  Created:&nbsp;{{ test.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+  {% if test.fixed_agent_version %}&nbsp;|&nbsp;Fixed Version: <code>{{ test.fixed_agent_version }}</code>{% endif %}
+</div>
+
+<div class="badges">
+  {% if test.fails_on_buggy %}
+  <span class="badge badge-success">✔ FAILS ON BUGGY (Caught bug)</span>
+  {% else %}
+  <span class="badge badge-failure">✘ DOES NOT FAIL ON BUGGY</span>
+  {% endif %}
+
+  {% if test.passes_on_fixed %}
+  <span class="badge badge-success">✔ PASSES ON FIXED</span>
+  {% else %}
+  <span class="badge badge-failure">✘ FAILS ON FIXED</span>
+  {% endif %}
+
+  {% if test.status == "valid" %}
+  <span class="badge badge-valid">STATUS: VALIDATED</span>
+  {% else %}
+  <span class="badge badge-failure">STATUS: REJECTED ({{ test.rejection_reason }})</span>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <a href="/tests/{{ test.id }}/download" class="btn-download">Download Test File (.py)</a>
+</div>
+
+<div class="section-card">
+  <div class="card-header">
+    <span>Test Code (<code>test_trace_{{ test.trace_id }}.py</code>)</span>
+  </div>
+  <pre><code>{{ test.test_code }}</code></pre>
+</div>
+
+<div class="section-card">
+  <div class="card-header">
+    <span>Pytest Subprocess Validation Output</span>
+  </div>
+  <pre class="output-box">{{ test.pytest_output }}</pre>
+</div>
+
+</body>
+</html>

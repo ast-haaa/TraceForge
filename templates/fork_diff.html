@@ -142,6 +142,28 @@
     font-size: .8rem;
     margin-top: .3rem;
   }
+
+  .test-gen-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f0f7ff;
+    border: 1px solid #c8e1ff;
+    border-radius: 6px;
+    padding: .8rem 1rem;
+    margin-bottom: 1.2rem;
+  }
+  .btn-create-test {
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    padding: .5rem 1rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: .88rem;
+    cursor: pointer;
+  }
+  .btn-create-test:hover { background: #1557b0; }
 </style>
 </head>
 <body>
@@ -153,6 +175,18 @@
 <div class="banner banner-diverged">
   <strong>Divergence Detected:</strong> First divergent step is <strong>Step {{ diff.first_divergent_step }} ({{ diff.first_divergent_node }})</strong>.
   {{ diff.changed_events|length }} event(s) changed between original and fork.
+</div>
+
+<div class="test-gen-banner">
+  <div>
+    <strong>Prevent Regressions:</strong>
+    <span style="font-size:.85rem; color:#444">Generate a regression test asserting out-of-window orders are denied while within-window orders are approved.</span>
+  </div>
+  <form method="POST" action="/tests/generate">
+    <input type="hidden" name="failed_trace_id" value="{{ orig_trace.id }}">
+    <input type="hidden" name="fixed_trace_id" value="{{ fork_trace.id }}">
+    <button type="submit" class="btn-create-test">Create Test →</button>
+  </form>
 </div>
 {% else %}
 <div class="banner banner-identical">

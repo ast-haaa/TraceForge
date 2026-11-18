@@ -28,5 +28,22 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def init_db() -> None:
-    """Create all tables (idempotent)."""
+    """Create all tables (idempotent) and auto-migrate SQLite columns if needed."""
     Base.metadata.create_all(bind=engine)
+    if DATABASE_URL.startswith("sqlite") and not DATABASE_URL.endswith(":memory:"):
+        with engine.connect() as conn:
+            try:
+                res = conn.exec_driver_sql("PRAGMA table_info(generated_tests);")
+                cols = {row[1] for row in res}
+                if cols:
+                    if "file_path" not in cols:
+                        conn.exec_driver_sql("ALTER TABLE generated_tests ADD COLUMN file_path TEXT;")
+                    if "pytest_output" not in cols:
+                        conn.exec_driver_sql("ALTER TABLE generated_tests ADD COLUMN pytest_output TEXT;")
+                    if "status" not in cols:
+                        conn.exec_driver_sql("ALTER TABLE generated_tests ADD COLUMN status TEXT DEFAULT 'pending';")
+                    if "rejection_reason" not in cols:
+                        conn.exec_driver_sql("ALTER TABLE generated_tests ADD COLUMN rejection_reason TEXT;")
+                    conn.commit()
+            except Exception:
+                pass

@@ -22,8 +22,9 @@ from sqlalchemy.orm import Session
 from .db import SessionLocal, init_db
 from .diff import diff_traces
 from .fork import fork_trace
-from .models import Event, Step, Trace, TraceRunType, TraceStatus
+from .models import Event, GeneratedTest, Step, Trace, TraceRunType, TraceStatus
 from .redact import redact_sensitive
+from .test_gen import generate_test, sanitize_trace_id, validate_test
 
 init_db()
 
@@ -182,4 +183,79 @@ def view_fork_diff(
             "orig_trace": orig_trace,
             "fork_trace": fork_trace_obj,
         },
+    )
+
+
+@app.post("/tests/generate")
+async def generate_and_validate_test_endpoint(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Generate and validate a pytest regression test from failed and fixed traces."""
+    content_type = request.headers.get("content-type", "")
+    is_json = "application/json" in content_type
+
+    if is_json:
+        payload = await request.json()
+        failed_trace_id = payload.get("failed_trace_id")
+        fixed_trace_id = payload.get("fixed_trace_id")
+    else:
+        form = await request.form()
+        failed_trace_id = form.get("failed_trace_id")
+        fixed_trace_id = form.get("fixed_trace_id")
+
+    try:
+        clean_failed_id = sanitize_trace_id(failed_trace_id)
+        clean_fixed_id = sanitize_trace_id(fixed_trace_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    gen_test = generate_test(clean_failed_id, clean_fixed_id, db=db)
+    validated = validate_test(gen_test.id, db=db)
+
+    if is_json:
+        return {
+            "test_id": validated.id,
+            "status": validated.status,
+            "fails_on_buggy": validated.fails_on_buggy,
+            "passes_on_fixed": validated.passes_on_fixed,
+            "url": f"/tests/{validated.id}",
+        }
+    return RedirectResponse(url=f"/tests/{validated.id}", status_code=303)
+
+
+@app.get("/tests/{test_id}", response_class=HTMLResponse)
+def view_generated_test(
+    request: Request,
+    test_id: int,
+    db: Session = Depends(get_db),
+):
+    """Render the generated regression test viewer."""
+    gen_test = db.query(GeneratedTest).filter(GeneratedTest.id == test_id).first()
+    if not gen_test:
+        raise HTTPException(status_code=404, detail="Generated test not found")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="test_view.html",
+        context={"test": gen_test},
+    )
+
+
+@app.get("/tests/{test_id}/download")
+def download_generated_test(
+    test_id: int,
+    db: Session = Depends(get_db),
+):
+    """Download the generated test python file."""
+    gen_test = db.query(GeneratedTest).filter(GeneratedTest.id == test_id).first()
+    if not gen_test:
+        raise HTTPException(status_code=404, detail="Generated test not found")
+
+    from fastapi.responses import Response
+
+    return Response(
+        content=gen_test.test_code,
+        media_type="text/x-python",
+        headers={"Content-Disposition": f"attachment; filename=test_trace_{gen_test.trace_id}.py"},
     )

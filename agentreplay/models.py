@@ -7,6 +7,7 @@ import enum
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     Enum,
@@ -182,10 +183,14 @@ class GeneratedTest(Base):
 
     description = Column(Text, nullable=False)
     test_code = Column(Text, nullable=False)
-    # 1 = pass, 0 = fail, NULL = not yet run
-    passes_on_fixed = Column(Integer)
-    fails_on_buggy = Column(Integer)
+    file_path = Column(String)
+    # Boolean pass/fail flags
+    passes_on_fixed = Column(Boolean, nullable=True)
+    fails_on_buggy = Column(Boolean, nullable=True)
     fixed_agent_version = Column(String)
+    pytest_output = Column(Text)
+    status = Column(String, default="pending")  # valid, rejected, pending
+    rejection_reason = Column(Text)
 
     trace = relationship("Trace", backref="generated_tests")
 
