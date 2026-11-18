@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AgentReplay – Traces</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; color: #222; }
+  h1   { font-size: 1.6rem; margin-bottom: 1rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th   { background: #f0f0f0; text-align: left; padding: .5rem .75rem; border-bottom: 2px solid #ccc; }
+  td   { padding: .4rem .75rem; border-bottom: 1px solid #e8e8e8; }
+  tr:hover td { background: #fafafa; }
+  .status-completed { color: #2a7a2a; font-weight: 600; }
+  .status-failed    { color: #c0392b; font-weight: 600; }
+  .status-recording { color: #d68910; font-weight: 600; }
+  a { color: #1a73e8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .empty { color: #888; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<h1>AgentReplay – Recorded Traces</h1>
+{% if traces %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Run ID</th>
+      <th>Agent</th>
+      <th>Status</th>
+      <th>Type</th>
+      <th>Created</th>
+      <th>Steps</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for t in traces %}
+    <tr>
+      <td><a href="/trace/{{ t.id }}">{{ t.id }}</a></td>
+      <td style="font-family:monospace;font-size:.8rem">{{ t.run_id[:16] }}…</td>
+      <td>{{ t.agent_name }}</td>
+      <td class="status-{{ t.status.value }}">{{ t.status.value }}</td>
+      <td>{{ t.run_type.value }}</td>
+      <td>{{ t.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td>
+      <td>{{ t.steps | length }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No traces recorded yet. Run the demo agent to generate one.</p>
+{% endif %}
+</body>
+</html>

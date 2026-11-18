@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AgentReplay – Trace #{{ trace.id }}</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; color: #222; }
+  h1   { font-size: 1.5rem; margin-bottom: .4rem; }
+  .meta { font-size: .85rem; color: #555; margin-bottom: 1.5rem; }
+  .status-completed { color: #2a7a2a; font-weight: 700; }
+  .status-failed    { color: #c0392b; font-weight: 700; }
+  .status-recording { color: #d68910; font-weight: 700; }
+
+  .step  { border: 1px solid #ddd; border-radius: 6px; margin-bottom: 1.2rem; overflow: hidden; }
+  .step-header {
+    background: #f7f7f7; padding: .5rem .9rem;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #ddd;
+  }
+  .step-header h3 { margin: 0; font-size: 1rem; }
+  .step-metrics { font-size: .78rem; color: #666; }
+
+  .event { padding: .6rem .9rem; border-bottom: 1px solid #eee; }
+  .event:last-child { border-bottom: none; }
+  .event-header { display: flex; gap: .6rem; align-items: center; margin-bottom: .3rem; }
+  .badge {
+    font-size: .72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; color: #fff;
+  }
+  .badge-llm_call  { background: #1a73e8; }
+  .badge-tool_call { background: #0a8a4b; }
+  .badge-state     { background: #7b2d8b; }
+  .badge-src { background: #888; font-size: .68rem; }
+  .error-box { background: #fff0f0; border: 1px solid #f5c6c6; border-radius: 4px;
+               padding: .4rem .6rem; color: #c0392b; font-size: .82rem; margin-top: .3rem; }
+
+  details summary { cursor: pointer; font-size: .82rem; color: #1a73e8; }
+  pre { background: #f4f4f4; padding: .6rem; border-radius: 4px;
+        font-size: .78rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; }
+
+  .back { font-size: .88rem; margin-bottom: 1rem; }
+  a { color: #1a73e8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .final-output { background: #f0f8f0; border: 1px solid #c3e6cb;
+                  border-radius: 6px; padding: .8rem 1rem; margin-bottom: 1.5rem; }
+  .final-output h3 { margin: 0 0 .4rem; font-size: .95rem; }
+</style>
+</head>
+<body>
+<p class="back"><a href="/">← All Traces</a></p>
+<h1>Trace #{{ trace.id }} – {{ trace.agent_name }}</h1>
+<div class="meta">
+  Run&nbsp;ID:&nbsp;<code>{{ trace.run_id }}</code> &nbsp;|&nbsp;
+  Status:&nbsp;<span class="status-{{ trace.status.value }}">{{ trace.status.value }}</span> &nbsp;|&nbsp;
+  Type:&nbsp;{{ trace.run_type.value }} &nbsp;|&nbsp;
+  Created:&nbsp;{{ trace.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+  {% if trace.description %}&nbsp;|&nbsp;{{ trace.description }}{% endif %}
+  {% if trace.agent_version %}&nbsp;|&nbsp;v{{ trace.agent_version }}{% endif %}
+  {% if trace.parent_trace_id %}&nbsp;|&nbsp;Fork of <a href="/trace/{{ trace.parent_trace_id }}">#{{ trace.parent_trace_id }}</a> @step {{ trace.fork_step }}{% endif %}
+</div>
+
+{% if trace.final_output %}
+<div class="final-output">
+  <h3>Final Output</h3>
+  <pre>{{ trace.final_output | tojson(indent=2) }}</pre>
+</div>
+{% endif %}
+
+{% for step in steps %}
+<div class="step">
+  <div class="step-header">
+    <h3>Step {{ step.index }} – <code>{{ step.node_name }}</code></h3>
+    <span class="step-metrics">
+      {% if step.model %}model: {{ step.model }} &nbsp;{% endif %}
+      {% if step.input_tokens %}in: {{ step.input_tokens }} tok &nbsp;{% endif %}
+      {% if step.output_tokens %}out: {{ step.output_tokens }} tok &nbsp;{% endif %}
+      {% if step.latency_ms %}⏱ {{ "%.1f"|format(step.latency_ms) }} ms{% endif %}
+    </span>
+  </div>
+
+  {% for ev in step.sorted_events %}
+  <div class="event">
+    <div class="event-header">
+      <span class="badge badge-{{ ev.kind.value }}">{{ ev.kind.value }}</span>
+      <span class="badge badge-src">{{ ev.source.value }}</span>
+      <span style="font-size:.78rem;color:#888">seq {{ ev.seq }} | hash {{ ev.input_hash[:12] }}…</span>
+    </div>
+
+    {% if ev.error %}
+    <div class="error-box">⚠ Error: {{ ev.error }}</div>
+    {% endif %}
+
+    <details {% if ev.error %}open{% endif %}>
+      <summary>Input</summary>
+      <pre>{{ ev.raw_input }}</pre>
+    </details>
+    <details open>
+      <summary>Output</summary>
+      <pre>{{ ev.raw_output }}</pre>
+    </details>
+  </div>
+  {% endfor %}
+
+  <div style="padding:.4rem .9rem; background:#fafafa; font-size:.77rem; color:#888; border-top:1px solid #eee;">
+    state_before / state_after:
+    <details>
+      <summary>state_before</summary><pre>{{ step.state_before | tojson(indent=2) }}</pre>
+    </details>
+    <details>
+      <summary>state_after</summary><pre>{{ step.state_after | tojson(indent=2) }}</pre>
+    </details>
+  </div>
+</div>
+{% endfor %}
+</body>
+</html>
