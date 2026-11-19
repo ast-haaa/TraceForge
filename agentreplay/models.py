@@ -162,6 +162,7 @@ class EvalLabel(Base):
     trace_id = Column(Integer, ForeignKey("traces.id", ondelete="CASCADE"), unique=True)
     injected_fault = Column(String)
     ground_truth_step = Column(Integer)
+    ground_truth_node = Column(String)
 
     trace = relationship("Trace", backref="eval_label")
 
@@ -210,9 +211,15 @@ class Investigation(Base):
         default=lambda: datetime.datetime.now(datetime.UTC),
     )
 
-    # list of {"step": int, "hypothesis": str, "confidence": float}
+    # list of {"step_index": int, "node_name": str, "hypothesis": str, "confidence": float, "cited_event_ids": list[int]}
     hypotheses = Column(JSON, nullable=False)
     ranked_steps = Column(JSON, nullable=False)
     raw_llm_output = Column(Text)
+    summary = Column(Text)
+
+    model = Column(String)
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    latency_ms = Column(Float, default=0.0)
 
     trace = relationship("Trace", backref="investigations")

@@ -86,19 +86,35 @@ def stub_llm(
         reason = "unable to determine order age"
     else:
         if policy_days is None:
-            policy_match = re.search(r"within (\d+) days", prompt, re.IGNORECASE)
-            policy_days = int(policy_match.group(1)) if policy_match else 7
-
-        if days_old <= policy_days:
-            dec = "approve"
-            reason = (
-                f"order is {days_old} day(s) old, within the {policy_days}-day window"
+            policy_line_match = re.search(
+                r"^Policy:[ \t]*(.*)$", prompt, re.MULTILINE
             )
+            policy_content = (
+                policy_line_match.group(1).strip() if policy_line_match else ""
+            )
+            if not policy_content:
+                dec = "deny"
+                reason = "refund denied: no refund policy provided"
+            else:
+                policy_match = re.search(r"within (\d+) days", prompt, re.IGNORECASE)
+                policy_days = int(policy_match.group(1)) if policy_match else 7
+                if days_old <= policy_days:
+                    dec = "approve"
+                    reason = f"order is {days_old} day(s) old, within the {policy_days}-day window"
+                else:
+                    dec = "deny"
+                    reason = f"order is {days_old} day(s) old, outside the {policy_days}-day window"
         else:
-            dec = "deny"
-            reason = (
-                f"order is {days_old} day(s) old, outside the {policy_days}-day window"
-            )
+            if days_old <= policy_days:
+                dec = "approve"
+                reason = (
+                    f"order is {days_old} day(s) old, within the {policy_days}-day window"
+                )
+            else:
+                dec = "deny"
+                reason = (
+                    f"order is {days_old} day(s) old, outside the {policy_days}-day window"
+                )
 
     latency = (time.perf_counter() - t0) * 1000
     p_tokens = len(prompt.split())

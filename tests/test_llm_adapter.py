@@ -401,3 +401,45 @@ def test_live_openai_compatible_llm():
     assert len(res.reason) > 0
     assert res.total_tokens > 0
     assert res.error is None
+
+
+# ---------------------------------------------------------------------------
+# Test 8: Script Formatting with Non-Breaking Hyphen \u2011 (Requirement 3)
+# ---------------------------------------------------------------------------
+
+
+def test_live_check_formatting_with_non_breaking_hyphen():
+    """Verify that formatting functions in live_check handle strings with \u2011 without raising."""
+    from scripts.live_check import format_iteration_log, format_reason, format_run_row
+
+    reason_with_hyphen = "Order is 12 days old, within the 30\u2011day refund window."
+
+    # Must not raise on reason truncation/cleaning
+    formatted = format_reason(reason_with_hyphen)
+    assert "\u2011" in formatted
+
+    # Must not raise on summary row formatting
+    row = format_run_row(
+        iteration=1,
+        trace_id=42,
+        decision="approve",
+        in_toks=238,
+        out_toks=73,
+        latency_ms=1024.5,
+        reason=reason_with_hyphen,
+    )
+    assert "#   42" in row
+    assert "APPROVE" in row
+    assert "\u2011" in row
+
+    # Must not raise on iteration log line formatting
+    log_line = format_iteration_log(
+        iteration=1,
+        trace_id=42,
+        decision="approve",
+        total_toks=311,
+        latency_ms=1024.5,
+        reason=reason_with_hyphen,
+    )
+    assert "Iteration  1/10" in log_line
+    assert "\u2011" in log_line

@@ -14,6 +14,13 @@ from __future__ import annotations
 import os
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+from typing import Any
+
 import dotenv
 
 from agentreplay.db import SessionLocal, init_db
@@ -23,6 +30,48 @@ from agentreplay.replay import ReplayEngine
 from demo_agent.agent import run_refund_agent
 from demo_agent.llm import clean_env_var
 from demo_agent.tools import REFUND_POLICY, reset_ledger
+
+# ---------------------------------------------------------------------------
+# Formatting Helpers (safe against non-breaking hyphens / special characters)
+# ---------------------------------------------------------------------------
+
+
+def format_reason(reason: str, max_len: int = 60) -> str:
+    """Format and truncate reason string safely."""
+    r = str(reason or "")
+    if len(r) > max_len:
+        return r[:max_len] + "..."
+    return r
+
+
+def format_run_row(
+    iteration: int,
+    trace_id: int,
+    decision: str,
+    in_toks: int,
+    out_toks: int,
+    latency_ms: float,
+    reason: str,
+) -> str:
+    """Format a summary row for tabular display."""
+    total_toks = in_toks + out_toks
+    toks_str = f"{in_toks}/{out_toks} ({total_toks})"
+    lat_str = f"{latency_ms:.0f}ms"
+    clean_reason = format_reason(reason, 60)
+    return f"{iteration:4d} | #{trace_id:5d} | {decision.upper():8s} | {toks_str:>15s} | {lat_str:>9s} | {clean_reason}"
+
+
+def format_iteration_log(
+    iteration: int,
+    trace_id: int,
+    decision: str,
+    total_toks: int,
+    latency_ms: float,
+    reason: str,
+) -> str:
+    """Format single iteration log line for progress display."""
+    clean_reason = format_reason(reason, 40)
+    return f"  Iteration {iteration:2d}/10: Trace #{trace_id:<4} -> {decision.upper():<7} ({total_toks:3d} toks, {latency_ms:5.0f}ms) | {clean_reason}"
 
 
 def main() -> int:
@@ -53,6 +102,10 @@ def main() -> int:
     for i in range(1, 11):
         reset_ledger()
         desc = f"Live check run #{i}"
+
+        # ONLY the LLM / agent call is inside the try/except that counts as an iteration ERROR
+        call_error: Exception | None = None
+        res: dict[str, Any] | None = None
         try:
             res = run_refund_agent(
                 customer_id="C001",
@@ -60,45 +113,11 @@ def main() -> int:
                 stale_policy=True,
                 description=desc,
             )
-            # Find the recorded trace
-            tr = db.query(Trace).filter(Trace.description == desc).order_by(Trace.id.desc()).first()
-            trace_id = tr.id if tr else -1
-
-            # Find llm_decide step
-            llm_step = (
-                db.query(Step)
-                .filter(Step.trace_id == trace_id, Step.node_name == "llm_decide")
-                .first()
-            )
-            in_toks = llm_step.input_tokens if llm_step else 0
-            out_toks = llm_step.output_tokens if llm_step else 0
-            lat = llm_step.latency_ms if llm_step else 0.0
-
-            # Extract reason from event or result
-            reason = ""
-            if llm_step and llm_step.events:
-                ev = next((e for e in llm_step.events if e.kind == EventKind.LLM_CALL), None)
-                if ev and isinstance(ev.output, dict):
-                    reason = str(ev.output.get("reason", ""))
-
-            decision = res.get("result", "unknown").lower()
-            if decision == "approve" and first_approved_trace_id is None and trace_id > 0:
-                first_approved_trace_id = trace_id
-
-            runs_data.append({
-                "iteration": i,
-                "trace_id": trace_id,
-                "decision": decision,
-                "in_toks": in_toks,
-                "out_toks": out_toks,
-                "total_toks": in_toks + out_toks,
-                "latency_ms": lat,
-                "reason": reason[:60] + ("..." if len(reason) > 60 else ""),
-                "status": "OK" if "error" not in res else "ERROR",
-            })
-            print(f"  Iteration {i:2d}/10: Trace #{trace_id:<4} -> {decision.upper():<7} ({in_toks + out_toks:3d} toks, {lat:5.0f}ms) | {reason[:40]}")
-
         except Exception as exc:
+            call_error = exc
+
+        # If LLM/agent call itself failed, record as error and continue
+        if call_error is not None:
             runs_data.append({
                 "iteration": i,
                 "trace_id": -1,
@@ -107,19 +126,69 @@ def main() -> int:
                 "out_toks": 0,
                 "total_toks": 0,
                 "latency_ms": 0.0,
-                "reason": str(exc)[:60],
+                "reason": str(call_error),
                 "status": "ERROR",
             })
-            print(f"  Iteration {i:2d}/10: ERROR -> {exc}")
+            print(f"  Iteration {i:2d}/10: ERROR -> {call_error}")
+            continue
+
+        # Outside the try/except: DB query, data aggregation, formatting, printing
+        assert res is not None
+        tr = db.query(Trace).filter(Trace.description == desc).order_by(Trace.id.desc()).first()
+        trace_id = tr.id if tr else -1
+
+        # Find llm_decide step
+        llm_step = (
+            db.query(Step)
+            .filter(Step.trace_id == trace_id, Step.node_name == "llm_decide")
+            .first()
+        )
+        in_toks = llm_step.input_tokens if llm_step else 0
+        out_toks = llm_step.output_tokens if llm_step else 0
+        lat = llm_step.latency_ms if llm_step else 0.0
+
+        # Extract reason from event or result
+        reason = ""
+        if llm_step and llm_step.events:
+            ev = next((e for e in llm_step.events if e.kind == EventKind.LLM_CALL), None)
+            if ev and isinstance(ev.output, dict):
+                reason = str(ev.output.get("reason", ""))
+
+        decision = res.get("result", "unknown").lower()
+        if decision == "approve" and first_approved_trace_id is None and trace_id > 0:
+            first_approved_trace_id = trace_id
+
+        runs_data.append({
+            "iteration": i,
+            "trace_id": trace_id,
+            "decision": decision,
+            "in_toks": in_toks,
+            "out_toks": out_toks,
+            "total_toks": in_toks + out_toks,
+            "latency_ms": lat,
+            "reason": reason,
+            "status": "OK" if "error" not in res else "ERROR",
+        })
+
+        # Progress log (printing and formatting outside the try/except)
+        log_line = format_iteration_log(i, trace_id, decision, in_toks + out_toks, lat, reason)
+        print(log_line)
 
     # Summary Table
     print("\n" + "-" * 80)
     print(f"{'Run':>4} | {'Trace':>6} | {'Decision':>8} | {'Tokens (In/Out)':>15} | {'Latency':>9} | {'Reason Summary'}")
     print("-" * 80)
     for r in runs_data:
-        toks_str = f"{r['in_toks']}/{r['out_toks']} ({r['total_toks']})"
-        lat_str = f"{r['latency_ms']:.0f}ms"
-        print(f"{r['iteration']:4d} | #{r['trace_id']:5d} | {r['decision'].upper():8s} | {toks_str:>15s} | {lat_str:>9s} | {r['reason']}")
+        row_str = format_run_row(
+            r["iteration"],
+            r["trace_id"],
+            r["decision"],
+            r["in_toks"],
+            r["out_toks"],
+            r["latency_ms"],
+            r["reason"],
+        )
+        print(row_str)
     print("-" * 80)
 
     # Aggregates

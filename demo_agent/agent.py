@@ -102,6 +102,7 @@ def run_refund_agent_from_step(
     *,
     stale_policy: bool = False,
     policy_days_override: int | None = None,
+    fault: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute Refund Agent forward starting at `start_step` using `restored_state`.
 
@@ -140,6 +141,9 @@ def run_refund_agent_from_step(
         if start_step == 1 and override_cust is not None:
             customer = override_cust
             ev_source = EventSource.MOCKED
+        elif fault and fault.get("type") == "wrong_customer_data":
+            customer = fault["fake_customer"]
+            ev_source = EventSource.LIVE
         else:
             customer = get_customer(customer_id)
             ev_source = EventSource.RECORDED if start_step == 1 else EventSource.LIVE
@@ -173,6 +177,9 @@ def run_refund_agent_from_step(
         if start_step == 2 and override_orders is not None:
             orders = override_orders if isinstance(override_orders, list) else override_orders.get("orders", [])
             ev_source = EventSource.MOCKED
+        elif fault and fault.get("type") == "wrong_order_date":
+            orders = fault["fake_orders"]
+            ev_source = EventSource.LIVE
         else:
             orders = get_orders(customer_id)
             ev_source = EventSource.RECORDED if start_step == 1 else EventSource.LIVE
@@ -202,14 +209,21 @@ def run_refund_agent_from_step(
     if start_step <= 3:
         t0 = time.perf_counter()
         rec.start_step("read_refund_policy", state_before={"target_order": order})
-        tool_input = {"name": "read_refund_policy", "args": {"stale": stale_policy}}
+        is_stale = stale_policy or (bool(fault and fault.get("type") == "stale_policy"))
+        tool_input = {"name": "read_refund_policy", "args": {"stale": is_stale} if not fault else {}}
 
         policy_override = _extract_policy_override(overrides) if start_step == 3 else None
         if policy_override is not None:
             policy_text = policy_override
             ev_source = EventSource.MOCKED
+        elif fault and fault.get("type") == "missing_tool_result":
+            policy_text = ""
+            ev_source = EventSource.LIVE
+        elif is_stale:
+            policy_text = read_refund_policy(stale=True)
+            ev_source = EventSource.RECORDED if start_step == 1 else EventSource.LIVE
         else:
-            policy_text = read_refund_policy(stale=stale_policy)
+            policy_text = read_refund_policy(stale=False)
             ev_source = EventSource.RECORDED if start_step == 1 else EventSource.LIVE
 
         latency = (time.perf_counter() - t0) * 1000
@@ -235,7 +249,6 @@ def run_refund_agent_from_step(
 
         prompt_override = _extract_prompt_override(overrides) if start_step == 4 else None
         model_override = _extract_model_override(overrides) if start_step == 4 else None
-        model_name = model_override or "stub-llm-v1"
 
         if prompt_override is not None:
             prompt = prompt_override
@@ -243,11 +256,17 @@ def run_refund_agent_from_step(
         else:
             cust_name = customer.get("name", "Unknown") if customer else "Unknown"
             ord_amt = order.get("amount", 0.0) if order else 0.0
+            effective_policy = policy_text
+            if fault and fault.get("type") == "prompt_bug":
+                effective_policy = fault.get(
+                    "buggy_prompt_policy",
+                    "Refunds are accepted within 30 days of the order date. No refunds will be issued for orders older than 30 days.",
+                )
             prompt = (
                 f"Customer: {cust_name}\n"
                 f"Order: {order_id}  Amount: ${ord_amt}\n"
                 f"DAYS_OLD: {days_old}\n"
-                f"Policy: {policy_text}\n"
+                f"Policy: {effective_policy}\n"
                 f"Decide whether to approve or deny this refund request. "
                 f"Return JSON with 'decision' ('approve' or 'deny') and 'reason'."
             )
@@ -366,6 +385,8 @@ def run_refund_agent(
     start_step: int = 1,
     restored_state: dict[str, Any] | None = None,
     overrides: Any = None,
+    meta: dict[str, Any] | None = None,
+    fault: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute the Refund Agent and record the full trace.
 
@@ -375,11 +396,17 @@ def run_refund_agent(
     initial_state["customer_id"] = customer_id
     initial_state["order_id"] = order_id
 
+    trace_meta = (
+        meta
+        if meta is not None
+        else {"stale_policy": stale_policy, "policy_days_override": policy_days_override}
+    )
+
     with record_trace(
         run_id=run_id,
         agent_name="refund_agent",
         description=description,
-        meta={"stale_policy": stale_policy, "policy_days_override": policy_days_override},
+        meta=trace_meta,
     ) as rec:
         return run_refund_agent_from_step(
             rec=rec,
@@ -388,4 +415,5 @@ def run_refund_agent(
             overrides=overrides,
             stale_policy=stale_policy,
             policy_days_override=policy_days_override,
+            fault=fault,
         )

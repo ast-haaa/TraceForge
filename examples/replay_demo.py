@@ -9,6 +9,13 @@ Proves:
 6. Unrecorded calls raise UnrecordedCall without guessing.
 """
 
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from agentreplay.db import SessionLocal
 from agentreplay.models import Event, Step, Trace
 from agentreplay.replay import ReplayContext, ReplayEngine, UnrecordedCall
