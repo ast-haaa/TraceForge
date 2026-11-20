@@ -345,3 +345,232 @@ def test_evaluation_runner_offline(tmp_path: Path):
     assert "Summary Comparison" in content
     assert "Per-Fault Breakdown" in content
     assert "Where It Fails" in content
+
+
+# ---------------------------------------------------------------------------
+# 6. Phase 5 Closeout Invariant & Deterministic Diff Baseline Tests
+# ---------------------------------------------------------------------------
+
+
+def test_stub_investigate_unreachable_when_provider_not_stub(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Confirm _stub_investigate is unreachable when LLM_PROVIDER is not 'stub'."""
+    from agentreplay.db import SessionLocal
+    from agentreplay.investigate import investigate
+
+    session = SessionLocal()
+    try:
+        run_refund_agent("C001", "O100", run_id="reachability-test", meta={})
+        tr = session.query(Trace).filter(Trace.run_id == "reachability-test").first()
+        assert tr is not None
+
+        # When set to unsupported provider, must raise ValueError, NEVER fall back to stub
+        monkeypatch.setenv("LLM_PROVIDER", "unsupported_provider")
+        with pytest.raises(
+            ValueError, match="Unsupported or unconfigured LLM_PROVIDER"
+        ):
+            investigate(tr.id, session=session)
+
+        # When set to openai_compatible without API key, must raise ValueError from _live_investigate, NOT call stub
+        monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+        monkeypatch.setenv("LLM_API_KEY", "")
+        with pytest.raises(ValueError, match="LLM_API_KEY is not configured"):
+            investigate(tr.id, session=session)
+    finally:
+        session.close()
+
+
+def test_investigator_prompt_contains_no_leak_words():
+    """Assert the investigator prompt contains none of: 30 days, stale, empty, null, outdated, corrupt."""
+    st = Step(index=1, node_name="get_customer")
+    st.id = 1
+    ev = Event(
+        step_id=1,
+        seq=1,
+        kind=EventKind.TOOL_CALL,
+        input_hash="h1",
+        raw_input="{}",
+        output={"customer": "Alice"},
+    )
+    ev.id = 1
+    prompt = build_investigator_prompt([st], {1: [ev]})
+
+    forbidden = ["30 days", "stale", "empty", "null", "outdated", "corrupt"]
+    for word in forbidden:
+        assert (
+            word not in prompt.lower()
+        ), f"Leak detected: '{word}' found in investigator prompt!"
+
+
+def test_deterministic_diff_baseline_hand_built_traces():
+    """Verify deterministic diff accurately locates the first divergent step on hand-built traces."""
+    from agentreplay.db import SessionLocal
+    from agentreplay.diff import diff_traces
+
+    session = SessionLocal()
+    try:
+        # Create clean baseline trace
+        clean_tr = Trace(run_id="handbuilt-clean", agent_name="refund_agent")
+        session.add(clean_tr)
+        session.flush()
+
+        # Step 1: get_customer
+        s1 = Step(trace_id=clean_tr.id, index=1, node_name="get_customer")
+        session.add(s1)
+        session.flush()
+        e1 = Event(
+            step_id=s1.id,
+            seq=1,
+            kind=EventKind.TOOL_CALL,
+            input_hash="h_c1",
+            output={"customer_id": "C001", "name": "Alice"},
+        )
+        session.add(e1)
+
+        # Step 2: get_orders
+        s2 = Step(trace_id=clean_tr.id, index=2, node_name="get_orders")
+        session.add(s2)
+        session.flush()
+        e2 = Event(
+            step_id=s2.id,
+            seq=1,
+            kind=EventKind.TOOL_CALL,
+            input_hash="h_o1",
+            output={
+                "orders": [{"order_id": "O1", "order_date": "2026-11-01"}]
+            },
+        )
+        session.add(e2)
+
+        # Step 3: read_refund_policy
+        s3 = Step(trace_id=clean_tr.id, index=3, node_name="read_refund_policy")
+        session.add(s3)
+        session.flush()
+        e3 = Event(
+            step_id=s3.id,
+            seq=1,
+            kind=EventKind.TOOL_CALL,
+            input_hash="h_p1",
+            output={"policy": "within 7 days"},
+        )
+        session.add(e3)
+
+        # Step 4: llm_decide
+        s4 = Step(trace_id=clean_tr.id, index=4, node_name="llm_decide")
+        session.add(s4)
+        session.flush()
+        e4 = Event(
+            step_id=s4.id,
+            seq=1,
+            kind=EventKind.LLM_CALL,
+            input_hash="h_prompt_7d",
+            output={"decision": "deny"},
+        )
+        session.add(e4)
+
+        # Step 5: issue_refund
+        s5 = Step(trace_id=clean_tr.id, index=5, node_name="issue_refund")
+        session.add(s5)
+        session.flush()
+        e5 = Event(
+            step_id=s5.id,
+            seq=1,
+            kind=EventKind.TOOL_CALL,
+            input_hash="h_ref1",
+            output={"status": "skipped"},
+        )
+        session.add(e5)
+
+        session.commit()
+
+        # Helper to build a comparison trace
+        def make_buggy_trace(
+            run_id, diff_step, diff_output=None, diff_hash=None, extra_event=False
+        ):
+            tr = Trace(run_id=run_id, agent_name="refund_agent")
+            session.add(tr)
+            session.flush()
+            for idx, node, out, ih in [
+                (1, "get_customer", {"customer_id": "C001", "name": "Alice"}, "h_c1"),
+                (
+                    2,
+                    "get_orders",
+                    {"orders": [{"order_id": "O1", "order_date": "2026-11-01"}]},
+                    "h_o1",
+                ),
+                (3, "read_refund_policy", {"policy": "within 7 days"}, "h_p1"),
+                (4, "llm_decide", {"decision": "deny"}, "h_prompt_7d"),
+                (5, "issue_refund", {"status": "skipped"}, "h_ref1"),
+            ]:
+                st = Step(trace_id=tr.id, index=idx, node_name=node)
+                session.add(st)
+                session.flush()
+                kind = EventKind.LLM_CALL if idx == 4 else EventKind.TOOL_CALL
+                eff_out = (
+                    diff_output
+                    if idx == diff_step and diff_output is not None
+                    else out
+                )
+                eff_hash = (
+                    diff_hash if idx == diff_step and diff_hash is not None else ih
+                )
+                ev = Event(
+                    step_id=st.id,
+                    seq=1,
+                    kind=kind,
+                    input_hash=eff_hash,
+                    output=eff_out,
+                )
+                session.add(ev)
+                if extra_event and idx == diff_step:
+                    ev2 = Event(
+                        step_id=st.id,
+                        seq=2,
+                        kind=kind,
+                        input_hash=eff_hash,
+                        output=eff_out,
+                    )
+                    session.add(ev2)
+            session.commit()
+            return tr.id
+
+        # 1. wrong_customer_data -> step 1
+        t_wcd = make_buggy_trace(
+            "t_wcd", 1, diff_output={"customer_id": "C002", "name": "Bob"}
+        )
+        assert diff_traces(clean_tr.id, t_wcd, db=session).first_divergent_step == 1
+
+        # 2. wrong_order_date -> step 2
+        t_wod = make_buggy_trace(
+            "t_wod",
+            2,
+            diff_output={
+                "orders": [{"order_id": "O1", "order_date": "2026-11-17"}]
+            },
+        )
+        assert diff_traces(clean_tr.id, t_wod, db=session).first_divergent_step == 2
+
+        # 3. stale_policy -> step 3
+        t_sp = make_buggy_trace("t_sp", 3, diff_output={"policy": "within 30 days"})
+        assert diff_traces(clean_tr.id, t_sp, db=session).first_divergent_step == 3
+
+        # 4. missing_tool_result -> step 3
+        t_mtr = make_buggy_trace("t_mtr", 3, diff_output={"policy": ""})
+        assert diff_traces(clean_tr.id, t_mtr, db=session).first_divergent_step == 3
+
+        # 5. prompt_bug -> step 4
+        t_pb = make_buggy_trace("t_pb", 4, diff_hash="h_prompt_30d_buggy")
+        assert diff_traces(clean_tr.id, t_pb, db=session).first_divergent_step == 4
+
+        # 6. duplicate_refund -> step 5
+        t_dr = make_buggy_trace("t_dr", 5, extra_event=True)
+        assert diff_traces(clean_tr.id, t_dr, db=session).first_divergent_step == 5
+
+        # 7. wrong_amount -> step 5
+        t_wa = make_buggy_trace(
+            "t_wa", 5, diff_output={"status": "refund_issued", "amount": 999.0}
+        )
+        assert diff_traces(clean_tr.id, t_wa, db=session).first_divergent_step == 5
+    finally:
+        session.close()

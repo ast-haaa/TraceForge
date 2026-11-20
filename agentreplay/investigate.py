@@ -11,12 +11,14 @@ LEAK PREVENTION:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import time
 from typing import Any
 
+import dotenv
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -24,6 +26,8 @@ from sqlalchemy.orm import Session
 from agentreplay.db import SessionLocal
 from agentreplay.models import Event, Investigation, Step, Trace
 from demo_agent.llm import clean_env_var
+
+dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +71,13 @@ class InvestigationResult(BaseModel):
 
 USER_EXPECTATION = (
     "User Expectation & Policy Invariant:\n"
-    "1. Refunds may ONLY be approved and issued for orders that are strictly within 7 days old (DAYS_OLD <= 7).\n"
-    "2. Any order older than 7 days (DAYS_OLD > 7) must be DENIED, and refund must be SKIPPED.\n"
-    "3. The refund must be processed for the actual customer requesting it, not credited to a different customer.\n"
-    "4. If a tool fails, returns empty/null data, or returns an outdated policy (e.g. 30 days instead of 7 days), "
-    "or if corrupted data is introduced, that step is faulty and caused the failure."
+    "1. Refunds may only be approved and issued for orders that are at most 7 days old (DAYS_OLD <= 7).\n"
+    "2. Any order older than 7 days (DAYS_OLD > 7) must be denied, and refund must be skipped.\n"
+    "3. The refund must be credited to the requesting customer.\n"
+    "4. The decision must be consistent with the stated policy and the data shown."
 )
+
+INVESTIGATOR_PROMPT_HASH = hashlib.sha256(USER_EXPECTATION.strip().encode("utf-8")).hexdigest()[:16]
 
 
 def build_investigator_prompt(
@@ -272,12 +277,13 @@ def _live_investigate(
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.0,
+        "max_tokens": 600,
         "response_format": {"type": "json_object"},
     }
 
     def _post(req_body: dict[str, Any]) -> tuple[int, str, dict[str, Any], float]:
         t0 = time.perf_counter()
-        max_429_retries = 4
+        max_429_retries = 6
         backoff = 2.0
         resp = None
 
@@ -312,9 +318,18 @@ def _live_investigate(
     # --- Attempt 1 ---
     status_code, resp_text, data, lat = _post(payload)
     if status_code != 200:
-        raise RuntimeError(
-            f"Investigation LLM call failed with HTTP {status_code}: {resp_text[:200]}"
-        )
+        if status_code == 400 and "json_validate_failed" in resp_text:
+            logger.warning(
+                "Groq json_validate_failed on Attempt 1. Retrying without response_format constraint..."
+            )
+            payload_no_rf = dict(payload)
+            payload_no_rf.pop("response_format", None)
+            status_code, resp_text, data, lat2 = _post(payload_no_rf)
+            lat += lat2
+        if status_code != 200:
+            raise RuntimeError(
+                f"Investigation LLM call failed with HTTP {status_code}: {resp_text[:200]}"
+            )
 
     choices = data.get("choices", [])
     content = ""
@@ -354,6 +369,7 @@ def _live_investigate(
             },
         ],
         "temperature": 0.0,
+        "max_tokens": 600,
         "response_format": {"type": "json_object"},
     }
 
@@ -434,7 +450,12 @@ def investigate(
         prompt = build_investigator_prompt(steps, events_by_step)
 
         provider = clean_env_var(os.environ.get("LLM_PROVIDER"), "stub").lower()
-        if provider == "openai_compatible":
+        if provider == "stub":
+            result, raw_output, p_tokens, c_tokens, latency_ms = _stub_investigate(
+                steps, events_by_step
+            )
+            model_name = "stub-investigator-v1"
+        elif provider == "openai_compatible":
             (
                 result,
                 raw_output,
@@ -444,10 +465,10 @@ def investigate(
                 latency_ms,
             ) = _live_investigate(prompt, steps, events_by_step, client=client)
         else:
-            result, raw_output, p_tokens, c_tokens, latency_ms = _stub_investigate(
-                steps, events_by_step
+            raise ValueError(
+                f"Unsupported or unconfigured LLM_PROVIDER: {provider!r}. "
+                "Must be 'stub' for offline testing or 'openai_compatible' for live LLM."
             )
-            model_name = "stub-investigator-v1"
 
         # Save to investigations table
         hypotheses_dump = [h.model_dump() for h in result.ranked_steps]
@@ -456,7 +477,7 @@ def investigate(
             hypotheses=hypotheses_dump,
             ranked_steps=hypotheses_dump,
             raw_llm_output=raw_output,
-            summary=result.summary,
+            summary=f"[{INVESTIGATOR_PROMPT_HASH}] {result.summary}",
             model=model_name,
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,

@@ -44,6 +44,7 @@ dotenv.load_dotenv()
 
 logger = logging.getLogger("evals.fault_injection")
 DATASET_PATH = Path("evals/dataset.json")
+HELD_OUT_PATH = Path("evals/held_out_dataset.json")
 
 FAULT_TYPES = [
     "stale_policy",
@@ -53,12 +54,19 @@ FAULT_TYPES = [
     "wrong_customer_data",
 ]
 
+HELD_OUT_FAULT_TYPES = [
+    "duplicate_refund",
+    "wrong_amount",
+]
+
 FAULT_GROUND_TRUTH: dict[str, tuple[int, str]] = {
     "stale_policy": (3, "read_refund_policy"),
     "wrong_order_date": (2, "get_orders"),
     "prompt_bug": (4, "llm_decide"),
     "missing_tool_result": (3, "read_refund_policy"),
     "wrong_customer_data": (1, "get_customer"),
+    "duplicate_refund": (5, "issue_refund"),
+    "wrong_amount": (5, "issue_refund"),
 }
 
 # Fixed synthetic customers and orders pool for repeatable benchmark runs
@@ -86,11 +94,12 @@ def deterministic_oracle(
     true_customer_name: str,
     true_days_old: int,
     agent_output: dict[str, Any],
+    true_amount: float | None = None,
 ) -> tuple[bool, str]:
     """Verify whether the agent's outcome is WRONG vs true 7-day policy.
 
     True policy:
-    - true_days_old <= 7 -> outcome MUST be approve, refund status refund_issued, credited to true_customer_name
+    - true_days_old <= 7 -> outcome MUST be approve, refund status refund_issued, credited to true_customer_name, exact amount
     - true_days_old > 7  -> outcome MUST be deny, refund status skipped (no refund)
 
     Returns:
@@ -108,6 +117,11 @@ def deterministic_oracle(
             return True, f"Refund credited to wrong customer {customer!r} (expected {true_customer_name!r})"
         if refund_status != "refund_issued":
             return True, f"Expected refund_issued, got {refund_status}"
+        if refund.get("duplicate_issued"):
+            return True, "Duplicate refund was issued for the order"
+        if true_amount is not None and refund.get("amount") is not None:
+            if abs(float(refund["amount"]) - float(true_amount)) > 0.01:
+                return True, f"Refund amount ${refund['amount']} differs from order amount ${true_amount}"
         return False, "Correctly approved"
     else:
         if decision != "deny":
@@ -383,9 +397,170 @@ def generate_benchmark(
     }
 
 
+def generate_held_out(
+    target_per_fault: int = 8,
+    seed: int = 1337,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Build or resume the 16-run held-out dataset for duplicate_refund and wrong_amount."""
+    init_db()
+    register_benchmark_data()
+
+    held_out_dataset = []
+    if HELD_OUT_PATH.exists():
+        try:
+            with open(HELD_OUT_PATH, encoding="utf-8") as f:
+                held_out_dataset = json.load(f)
+        except Exception:
+            held_out_dataset = []
+
+    db = SessionLocal()
+    completed_counts: dict[str, int] = {ft: 0 for ft in HELD_OUT_FAULT_TYPES}
+    for item in held_out_dataset:
+        ft = item.get("fault_type")
+        tid = item.get("trace_id")
+        if ft in completed_counts and tid:
+            tr = db.query(Trace).filter(Trace.id == tid).first()
+            if tr:
+                completed_counts[ft] += 1
+
+    non_failing_counts: dict[str, int] = {ft: 0 for ft in HELD_OUT_FAULT_TYPES}
+    today = datetime.date.today()
+
+    print("=" * 75)
+    print("AgentReplay Phase 5: Held-Out Benchmark Dataset Generator")
+    print("=" * 75)
+    print(f"Target: {target_per_fault} runs per fault type ({len(HELD_OUT_FAULT_TYPES) * target_per_fault} total)")
+    print(f"Current progress: {completed_counts}")
+    print("-" * 75)
+
+    for ft in HELD_OUT_FAULT_TYPES:
+        needed = target_per_fault - completed_counts[ft]
+        if needed <= 0:
+            print(f"[{ft}] Already completed {completed_counts[ft]}/{target_per_fault} runs. Skipping.")
+            continue
+
+        gt_step, gt_node = FAULT_GROUND_TRUTH[ft]
+        print(f"\n[{ft}] Generating {needed} more failing run(s) (ground truth: step {gt_step} {gt_node})...")
+
+        iteration = 0
+        while completed_counts[ft] < target_per_fault and iteration < 40:
+            iteration += 1
+            idx = completed_counts[ft]
+            cust = BENCHMARK_CUSTOMERS[(idx + iteration - 1) % len(BENCHMARK_CUSTOMERS)]
+            amt = AMOUNTS[(idx + iteration - 1) % len(AMOUNTS)]
+            order_id = f"ORD_HELD_{ft[:3].upper()}_{idx + 1}_{iteration}"
+
+            # Valid recent order (<= 7 days old) so refund is normally approved
+            days_old_opts = [2, 3, 4, 5, 2, 3, 4, 5]
+            true_days_old = days_old_opts[(idx + iteration - 1) % len(days_old_opts)]
+            ord_date = (today - datetime.timedelta(days=true_days_old)).isoformat()
+            tools_mod.ORDERS[order_id] = {
+                "order_id": order_id,
+                "customer_id": cust["customer_id"],
+                "amount": amt,
+                "order_date": ord_date,
+                "item": f"Item {order_id}",
+            }
+
+            fault_args: dict[str, Any] = {"type": ft}
+            if ft == "wrong_amount":
+                fault_args["fake_amount"] = amt + 50.0
+
+            run_id = f"bench-held-{ft}-{idx + 1}-{int(time.time() * 1000)}"
+            try:
+                agent_res = run_refund_agent(
+                    customer_id=cust["customer_id"],
+                    order_id=order_id,
+                    run_id=run_id,
+                    description=f"Held-out benchmark execution #{idx + 1}",
+                    meta={},
+                    fault=fault_args,
+                )
+            except Exception as e:
+                logger.error("Held-out run %s failed: %s", run_id, e)
+                time.sleep(1.0)
+                continue
+
+            tr = db.query(Trace).filter(Trace.run_id == run_id).first()
+            if not tr:
+                continue
+
+            is_wrong, reason = deterministic_oracle(
+                true_customer_name=cust["name"],
+                true_days_old=true_days_old,
+                true_amount=amt,
+                agent_output=agent_res,
+            )
+
+            if not is_wrong:
+                non_failing_counts[ft] += 1
+                continue
+
+            eval_lbl = EvalLabel(
+                trace_id=tr.id,
+                injected_fault=ft,
+                ground_truth_step=gt_step,
+                ground_truth_node=gt_node,
+            )
+            db.add(eval_lbl)
+            db.commit()
+
+            record = {
+                "trace_id": tr.id,
+                "run_id": run_id,
+                "fault_type": ft,
+                "ground_truth_step": gt_step,
+                "ground_truth_node": gt_node,
+                "customer_id": cust["customer_id"],
+                "customer_name": cust["name"],
+                "order_id": order_id,
+                "true_days_old": true_days_old,
+                "amount": amt,
+                "actual_decision": agent_res.get("result"),
+                "outcome_is_wrong": True,
+                "oracle_failure_reason": reason,
+            }
+            held_out_dataset.append(record)
+            save_dataset_to(held_out_dataset, HELD_OUT_PATH)
+
+            completed_counts[ft] += 1
+            print(
+                f"  [{ft} {completed_counts[ft]}/{target_per_fault}] Trace ID {tr.id} saved: "
+                f"days_old={true_days_old}, amount={amt}, reason={reason}"
+            )
+            time.sleep(0.5)
+
+    db.close()
+    return {
+        "completed_counts": completed_counts,
+        "non_failing_counts": non_failing_counts,
+        "total_dataset_entries": len(held_out_dataset),
+    }
+
+
+def save_dataset_to(dataset: list[dict[str, Any]], path: Path) -> None:
+    """Save dataset records to a specific path safely."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(5):
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(dataset, f, indent=2)
+            break
+        except (PermissionError, OSError):
+            time.sleep(0.15)
+
+
 def assert_ground_truth_isolation(db_session: Any) -> None:
     """Assert that NO benchmark trace or event or step contains fault names."""
     dataset = load_dataset()
+    if HELD_OUT_PATH.exists():
+        try:
+            with open(HELD_OUT_PATH, encoding="utf-8") as f:
+                dataset.extend(json.load(f))
+        except Exception:
+            pass
+
     if not dataset:
         return
 
@@ -401,6 +576,8 @@ def assert_ground_truth_isolation(db_session: Any) -> None:
         "prompt_bug",
         "missing_tool_result",
         "wrong_customer_data",
+        "duplicate_refund",
+        "wrong_amount",
     ]
 
     for tr in traces:
@@ -426,15 +603,30 @@ def assert_ground_truth_isolation(db_session: Any) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate fault-injection benchmark dataset.")
-    parser.add_argument("--runs-per-fault", type=int, default=8, help="Number of failing runs per fault type (default: 8)")
-    parser.add_argument("--dry-run", action="store_true", help="Run with dry run / stub mode")
+    parser.add_argument(
+        "--runs-per-fault",
+        type=int,
+        default=8,
+        help="Number of failing runs per fault type (default: 8)",
+    )
+    parser.add_argument(
+        "--held-out",
+        action="store_true",
+        help="Generate held-out dataset instead of primary benchmark",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Run with dry run / stub mode"
+    )
     args = parser.parse_args()
 
     if args.dry_run:
         os.environ["LLM_PROVIDER"] = "stub"
 
-    res = generate_benchmark(target_per_fault=args.runs_per_fault)
-    # Check ground truth isolation
+    if args.held_out:
+        res = generate_held_out(target_per_fault=args.runs_per_fault)
+    else:
+        res = generate_benchmark(target_per_fault=args.runs_per_fault)
+
     with SessionLocal() as s:
         assert_ground_truth_isolation(s)
         print("Ground truth isolation assertion PASSED on all benchmark records!")

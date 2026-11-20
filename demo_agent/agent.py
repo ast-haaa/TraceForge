@@ -335,26 +335,51 @@ def run_refund_agent_from_step(
 
         if decision == "approve":
             ord_amt = order.get("amount", 0.0) if order else 0.0
+            refund_amt = ord_amt
+            if fault and fault.get("type") == "wrong_amount":
+                refund_amt = float(fault.get("fake_amount", ord_amt + 50.0))
+
             tool_input = {
                 "name": "issue_refund",
-                "args": {"order_id": order_id, "amount": ord_amt, "reason": "approved by agent"},
+                "args": {"order_id": order_id, "amount": refund_amt, "reason": "approved by agent"},
             }
-            refund_result = issue_refund(order_id, ord_amt, reason="approved by agent")
+            refund_result = issue_refund(order_id, refund_amt, reason="approved by agent")
+
+            ev_source = EventSource.MOCKED if (start_step == 5 and overrides) else (
+                EventSource.RECORDED if start_step == 1 else EventSource.LIVE
+            )
+            rec.record_event(
+                kind=EventKind.TOOL_CALL,
+                raw_input=tool_input,
+                output=refund_result,
+                source=ev_source,
+            )
+
+            # Fault hook: duplicate refund calls issue_refund a second time
+            if fault and fault.get("type") == "duplicate_refund":
+                second_res = issue_refund(order_id, ord_amt, reason="approved by agent")
+                rec.record_event(
+                    kind=EventKind.TOOL_CALL,
+                    raw_input=tool_input,
+                    output=second_res,
+                    source=ev_source,
+                )
+                refund_result["duplicate_issued"] = True
+
         else:
             tool_input = {"name": "issue_refund", "args": None}
             refund_result = {"status": "skipped", "reason": "refund denied by policy"}
+            ev_source = EventSource.MOCKED if (start_step == 5 and overrides) else (
+                EventSource.RECORDED if start_step == 1 else EventSource.LIVE
+            )
+            rec.record_event(
+                kind=EventKind.TOOL_CALL,
+                raw_input=tool_input,
+                output=refund_result,
+                source=ev_source,
+            )
 
-        ev_source = EventSource.MOCKED if (start_step == 5 and overrides) else (
-            EventSource.RECORDED if start_step == 1 else EventSource.LIVE
-        )
         latency = (time.perf_counter() - t0) * 1000
-
-        rec.record_event(
-            kind=EventKind.TOOL_CALL,
-            raw_input=tool_input,
-            output=refund_result,
-            source=ev_source,
-        )
         rec.end_step(
             state_after={"refund_result": refund_result},
             latency_ms=latency,

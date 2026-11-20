@@ -11,3 +11,4 @@ generated_tests/
 .env
 .env.*
 !.env.example
+evals/*.tmp
