@@ -23,6 +23,7 @@ from .db import SessionLocal
 from .hash import compute_input_hash
 from .models import Event, EventKind, EventSource, Step, Trace, TraceRunType
 from .redact import redact_sensitive
+from .registry import get_agent, get_all_registrations
 from .sdk import _active_replay_session
 
 # ---------------------------------------------------------------------------
@@ -229,8 +230,9 @@ class ReplayContext:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        for p in self._patches:
+        for p in reversed(self._patches):
             p.stop()
+        self._patches.clear()
         if self._token:
             _active_replay_session.reset(self._token)
         if self._owns_db:
@@ -334,25 +336,53 @@ class ReplayContext:
         def mock_get_llm() -> Callable[..., Any]:
             return mock_llm_call
 
-        # Apply patches across demo_agent.tools, demo_agent.agent, and demo_agent.lg_agent
-        targets = [
-            ("demo_agent.tools.get_customer", mock_get_customer),
-            ("demo_agent.agent.get_customer", mock_get_customer),
-            ("demo_agent.lg_agent.get_customer", mock_get_customer),
-            ("demo_agent.tools.get_orders", mock_get_orders),
-            ("demo_agent.agent.get_orders", mock_get_orders),
-            ("demo_agent.lg_agent.get_orders", mock_get_orders),
-            ("demo_agent.tools.read_refund_policy", mock_read_refund_policy),
-            ("demo_agent.agent.read_refund_policy", mock_read_refund_policy),
-            ("demo_agent.lg_agent.read_refund_policy", mock_read_refund_policy),
-            ("demo_agent.tools.issue_refund", mock_issue_refund),
-            ("demo_agent.agent.issue_refund", mock_issue_refund),
-            ("demo_agent.lg_agent.issue_refund", mock_issue_refund),
-            ("demo_agent.agent._stub_llm", mock_stub_llm),
-            ("demo_agent.llm.get_llm", mock_get_llm),
-            ("demo_agent.agent.get_llm", mock_get_llm),
-            ("demo_agent.lg_agent.get_llm", mock_get_llm),
-        ]
+        built_in_mocks: dict[str, Callable[..., Any]] = {
+            "get_customer": mock_get_customer,
+            "get_orders": mock_get_orders,
+            "read_refund_policy": mock_read_refund_policy,
+            "issue_refund": mock_issue_refund,
+            "_stub_llm": mock_stub_llm,
+            "get_llm": mock_get_llm,
+        }
+
+        def make_generic_mock(name: str) -> Callable[..., Any]:
+            def generic_mock(*args: Any, **kwargs: Any) -> Any:
+                raw_input = {"name": name, "args": kwargs if kwargs else (args if args else None)}
+                h = compute_input_hash(redact_sensitive(raw_input))
+                ev = matcher.match(name, h, kind=EventKind.TOOL_CALL)
+                if ev.error:
+                    raise RuntimeError(ev.error)
+                return ev.output
+            return generic_mock
+
+        # Dynamically load patch targets from registered agents
+        targets: list[tuple[str, Callable[..., Any]]] = []
+        seen_targets: set[str] = set()
+        for reg in get_all_registrations().values():
+            if not reg.patch_targets:
+                continue
+            for item in reg.patch_targets:
+                if isinstance(item, tuple) and len(item) == 2:
+                    target_str, mock_val = item
+                    if target_str in seen_targets:
+                        continue
+                    seen_targets.add(target_str)
+                    if callable(mock_val):
+                        targets.append((target_str, mock_val))
+                    elif isinstance(mock_val, str) and mock_val in built_in_mocks:
+                        targets.append((target_str, built_in_mocks[mock_val]))
+                    else:
+                        targets.append((target_str, make_generic_mock(str(mock_val))))
+                elif isinstance(item, str):
+                    target_str = item
+                    if target_str in seen_targets:
+                        continue
+                    seen_targets.add(target_str)
+                    attr_name = target_str.split(".")[-1]
+                    if attr_name in built_in_mocks:
+                        targets.append((target_str, built_in_mocks[attr_name]))
+                    else:
+                        targets.append((target_str, make_generic_mock(attr_name)))
 
         for target_str, mock_fn in targets:
             try:
@@ -486,7 +516,7 @@ class ReplayEngine:
     def replay_agent(
         self,
         trace_id: int,
-        agent_fn: Callable[..., Any],
+        agent_fn: Callable[..., Any] | None = None,
         **override_kwargs: Any,
     ) -> ReplayResult:
         """Replay an agent function execution with ZERO live tool/LLM calls.
@@ -499,6 +529,15 @@ class ReplayEngine:
             raise ValueError(f"Trace #{trace_id} not found")
 
         orig_trace_id = orig_trace.id
+        fn_to_run = agent_fn
+        if fn_to_run is None:
+            reg = get_agent(orig_trace.agent_name)
+            if reg.runner is None:
+                raise ValueError(
+                    f"Agent '{orig_trace.agent_name}' has no runner registered for replay. "
+                    "Please register it with agentreplay.register_agent."
+                )
+            fn_to_run = reg.runner
 
         orig_steps = (
             self.db.query(Step)
@@ -522,7 +561,7 @@ class ReplayEngine:
         kwargs.update(override_kwargs)
 
         with ReplayContext(trace_id=orig_trace_id, db=self.db):
-            final_output = agent_fn(**kwargs)
+            final_output = fn_to_run(**kwargs)
 
         replayed_trace = (
             self.db.query(Trace)

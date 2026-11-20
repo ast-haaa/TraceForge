@@ -371,6 +371,7 @@ def run_lg_refund_agent(
     start_step: int = 1,
     restored_state: dict[str, Any] | None = None,
     rec: Any = None,
+    handler: AgentReplayHandler | None = None,
 ) -> dict[str, Any]:
     """Execute the LangGraph Refund Agent with automatic AgentReplay recording."""
     inputs: dict[str, Any] = {
@@ -398,14 +399,16 @@ def run_lg_refund_agent(
             meta=run_meta,
             agent_version=agent_version,
         ) as recorder:
-            handler = AgentReplayHandler(recorder)
-            res = _compiled_graph.invoke(inputs, config={"callbacks": [handler]})
+            active_handler = handler or AgentReplayHandler(recorder)
+            recorder._handler = active_handler
+            res = _compiled_graph.invoke(inputs, config={"callbacks": [active_handler]})
             if recorder.trace.status == TraceStatus.RECORDING:
                 recorder.finalize(final_output=res)
             return res
     else:
-        handler = AgentReplayHandler(rec)
-        res = _compiled_graph.invoke(inputs, config={"callbacks": [handler]})
+        active_handler = handler or AgentReplayHandler(rec)
+        rec._handler = active_handler
+        res = _compiled_graph.invoke(inputs, config={"callbacks": [active_handler]})
         if rec.trace.status == TraceStatus.RECORDING:
             rec.finalize(final_output=res)
         return res
@@ -442,3 +445,25 @@ def run_lg_refund_agent_from_step(
         restored_state=restored_state,
         rec=rec,
     )
+
+
+# Register lg_refund_agent with AgentReplay
+from agentreplay.registry import register_agent  # noqa: E402
+
+register_agent(
+    name="lg_refund_agent",
+    runner=run_lg_refund_agent,
+    runner_from_step=run_lg_refund_agent_from_step,
+    patch_targets=[
+        "demo_agent.tools.get_customer",
+        "demo_agent.lg_agent.get_customer",
+        "demo_agent.tools.get_orders",
+        "demo_agent.lg_agent.get_orders",
+        "demo_agent.tools.read_refund_policy",
+        "demo_agent.lg_agent.read_refund_policy",
+        "demo_agent.tools.issue_refund",
+        "demo_agent.lg_agent.issue_refund",
+        "demo_agent.llm.get_llm",
+        "demo_agent.lg_agent.get_llm",
+    ],
+)

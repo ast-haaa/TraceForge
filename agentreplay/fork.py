@@ -37,6 +37,7 @@ from .models import (
     TraceStatus,
 )
 from .redact import redact_sensitive
+from .registry import get_agent
 from .replay import UnrecordedCall
 from .sdk import Recorder
 
@@ -198,50 +199,31 @@ def fork_trace(
                         restored_state=restored_state,
                         overrides=overrides,
                     )
-                elif orig_trace.agent_name == "refund_agent":
-                    from demo_agent.agent import run_refund_agent_from_step
-
-                    stale_policy = (
-                        orig_trace.meta.get("stale_policy", False)
-                        if orig_trace.meta
-                        else False
-                    )
-                    policy_override = (
-                        orig_trace.meta.get("policy_days_override")
-                        if orig_trace.meta
-                        else None
-                    )
-                    run_refund_agent_from_step(
-                        rec=recorder,
-                        start_step=step_index,
-                        restored_state=restored_state,
-                        overrides=overrides,
-                        stale_policy=stale_policy,
-                        policy_days_override=policy_override,
-                    )
-                elif orig_trace.agent_name == "lg_refund_agent":
-                    from demo_agent.lg_agent import run_lg_refund_agent_from_step
-
-                    stale_policy = (
-                        orig_trace.meta.get("stale_policy", False)
-                        if orig_trace.meta
-                        else False
-                    )
-                    policy_override = (
-                        orig_trace.meta.get("policy_days_override")
-                        if orig_trace.meta
-                        else None
-                    )
-                    run_lg_refund_agent_from_step(
-                        rec=recorder,
-                        start_step=step_index,
-                        restored_state=restored_state,
-                        overrides=overrides,
-                        stale_policy=stale_policy,
-                        policy_days_override=policy_override,
-                    )
                 else:
-                    raise ValueError(f"No agent runner available for {orig_trace.agent_name}")
+                    reg = get_agent(orig_trace.agent_name)
+                    if reg.runner_from_step is None:
+                        raise ValueError(
+                            f"Agent '{orig_trace.agent_name}' has no runner_from_step registered. "
+                            f"Please register it with agentreplay.register_agent."
+                        )
+                    stale_policy = (
+                        orig_trace.meta.get("stale_policy", False)
+                        if orig_trace.meta
+                        else False
+                    )
+                    policy_override = (
+                        orig_trace.meta.get("policy_days_override")
+                        if orig_trace.meta
+                        else None
+                    )
+                    reg.runner_from_step(
+                        rec=recorder,
+                        start_step=step_index,
+                        restored_state=restored_state,
+                        overrides=overrides,
+                        stale_policy=stale_policy,
+                        policy_days_override=policy_override,
+                    )
 
             session.commit()
             return fork_trace_obj

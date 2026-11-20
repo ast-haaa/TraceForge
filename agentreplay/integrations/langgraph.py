@@ -42,6 +42,12 @@ class AgentReplayHandler(BaseCallbackHandler):
         self._open_tools: dict[Any, dict[str, Any]] = {}
         # Maps run_id -> open LLM call data dict
         self._open_llms: dict[Any, dict[str, Any]] = {}
+        # Real callback provenance log for steps and events
+        self.callback_log: list[dict[str, Any]] = []
+
+    def get_provenance_table(self) -> list[dict[str, Any]]:
+        """Return the structured provenance log of all steps and events recorded."""
+        return list(self.callback_log)
 
     def _determine_source(self, step: Step | None = None) -> EventSource:
         """Determine event source (recorded, replayed, mocked, or live)."""
@@ -110,6 +116,17 @@ class AgentReplayHandler(BaseCallbackHandler):
         }
 
         step = self.rec.start_step(node_name=node_name, state_before=safe_state_before)
+        self.callback_log.append(
+            {
+                "type": "step",
+                "step": step.index,
+                "node": node_name,
+                "seq": None,
+                "kind": "step",
+                "callback": "on_chain_start",
+                "call_path": f"on_chain_* (node: {node_name})",
+            }
+        )
         self._open_steps[run_id] = {
             "step": step,
             "node_name": node_name,
@@ -223,6 +240,7 @@ class AgentReplayHandler(BaseCallbackHandler):
             "tool_name": tool_name,
             "raw_input": raw_input,
             "start_time": time.perf_counter(),
+            "start_callback": "on_tool_start",
         }
         return None
 
@@ -244,12 +262,24 @@ class AgentReplayHandler(BaseCallbackHandler):
             return None
 
         ev_source = self._determine_source(step)
-        self.rec.record_event(
+        ev = self.rec.record_event(
             kind=EventKind.TOOL_CALL,
             raw_input=tool_info["raw_input"],
             output=output,
             source=ev_source,
             step=step,
+        )
+        t_name = tool_info.get("tool_name", "tool")
+        self.callback_log.append(
+            {
+                "type": "event",
+                "step": step.index,
+                "node": step.node_name,
+                "seq": ev.seq,
+                "kind": "tool_call",
+                "callback": "on_tool_end",
+                "call_path": f"on_tool_* (@tool: {t_name})",
+            }
         )
         return None
 
@@ -274,13 +304,25 @@ class AgentReplayHandler(BaseCallbackHandler):
 
         if step is not None:
             ev_source = self._determine_source(step)
-            self.rec.record_event(
+            ev = self.rec.record_event(
                 kind=EventKind.TOOL_CALL,
                 raw_input=raw_input,
                 output=None,
                 error=str(error),
                 source=ev_source,
                 step=step,
+            )
+            t_name = tool_info.get("tool_name", "tool") if tool_info else "tool"
+            self.callback_log.append(
+                {
+                    "type": "event",
+                    "step": step.index,
+                    "node": step.node_name,
+                    "seq": ev.seq,
+                    "kind": "tool_call",
+                    "callback": "on_tool_error",
+                    "call_path": f"on_tool_* (@tool: {t_name} error)",
+                }
             )
 
         self.rec.trace.status = TraceStatus.FAILED
@@ -306,11 +348,15 @@ class AgentReplayHandler(BaseCallbackHandler):
         if parent_run_id is not None:
             self._parent_map[run_id] = parent_run_id
         prompt_text = prompts[0] if prompts else ""
+        ser_name = (serialized or {}).get("name") or "BaseLLM"
         self._open_llms[run_id] = {
             "parent_run_id": parent_run_id,
             "prompt": prompt_text,
             "serialized": serialized,
             "start_time": time.perf_counter(),
+            "start_callback": "on_llm_start",
+            "caller_class": ser_name,
+            "caller_type": "llm",
         }
         return None
 
@@ -332,11 +378,15 @@ class AgentReplayHandler(BaseCallbackHandler):
             prompt_text = "\n".join(
                 getattr(m, "content", str(m)) for m in messages[0]
             )
+        ser_name = (serialized or {}).get("name") or "BaseChatModel"
         self._open_llms[run_id] = {
             "parent_run_id": parent_run_id,
             "prompt": prompt_text,
             "serialized": serialized,
             "start_time": time.perf_counter(),
+            "start_callback": "on_chat_model_start",
+            "caller_class": ser_name,
+            "caller_type": "chat_model",
         }
         return None
 
@@ -367,18 +417,46 @@ class AgentReplayHandler(BaseCallbackHandler):
             latency = (time.perf_counter() - llm_info["start_time"]) * 1000
 
         text = ""
+        gen_msg = None
         if hasattr(response, "generations") and response.generations:
             first_gen = response.generations[0][0]
+            gen_msg = getattr(first_gen, "message", None)
             text = getattr(first_gen, "text", "") or getattr(
-                getattr(first_gen, "message", None), "content", ""
+                gen_msg, "content", ""
             )
-        model_name = llm_out.get("model") or llm_out.get("model_name") or "stub-llm"
-        token_usage = llm_out.get("token_usage") or {}
-        in_tokens = llm_out.get("input_tokens") or token_usage.get("prompt_tokens") or 0
-        out_tokens = (
-            llm_out.get("output_tokens") or token_usage.get("completion_tokens") or 0
+
+        msg_usage = getattr(gen_msg, "usage_metadata", None) or {}
+        msg_resp_meta = getattr(gen_msg, "response_metadata", None) or {}
+        resp_token_usage = msg_resp_meta.get("token_usage", {})
+
+        model_name = (
+            llm_out.get("model")
+            or llm_out.get("model_name")
+            or msg_resp_meta.get("model_name")
+            or msg_resp_meta.get("model")
+            or (llm_info.get("serialized") or {}).get("name")
+            or "stub-llm"
         )
-        tot_tokens = in_tokens + out_tokens
+        token_usage = llm_out.get("token_usage") or {}
+        in_tokens = (
+            llm_out.get("input_tokens")
+            or token_usage.get("prompt_tokens")
+            or msg_usage.get("input_tokens")
+            or resp_token_usage.get("prompt_tokens")
+            or 0
+        )
+        out_tokens = (
+            llm_out.get("output_tokens")
+            or token_usage.get("completion_tokens")
+            or msg_usage.get("output_tokens")
+            or resp_token_usage.get("completion_tokens")
+            or 0
+        )
+        tot_tokens = (
+            msg_usage.get("total_tokens")
+            or resp_token_usage.get("total_tokens")
+            or (in_tokens + out_tokens)
+        )
         cost = llm_out.get("cost", 0.0)
 
         # Parse decision and reason if present in text
@@ -410,12 +488,33 @@ class AgentReplayHandler(BaseCallbackHandler):
         }
 
         ev_source = self._determine_source(step)
-        self.rec.record_event(
+        ev = self.rec.record_event(
             kind=EventKind.LLM_CALL,
             raw_input={"prompt": llm_info["prompt"]},
             output=out_dict,
             source=ev_source,
             step=step,
+        )
+
+        caller_cls = llm_info.get("caller_class", "LLM")
+        caller_type = llm_info.get("caller_type", "llm")
+        if caller_cls == "RefundLLM":
+            path_desc = "on_llm_* (RefundLLM BaseLLM delegating to demo_agent.llm.get_llm() wrapper, not LangChain ChatModel)"
+        elif caller_type == "chat_model":
+            path_desc = f"on_chat_model_* -> on_llm_end ({caller_cls} ChatModel)"
+        else:
+            path_desc = f"on_llm_* ({caller_cls} BaseLLM)"
+
+        self.callback_log.append(
+            {
+                "type": "event",
+                "step": step.index,
+                "node": step.node_name,
+                "seq": ev.seq,
+                "kind": "llm_call",
+                "callback": "on_llm_end",
+                "call_path": path_desc,
+            }
         )
 
         step_info = self._find_step_info_for_run(p_id)
@@ -442,13 +541,25 @@ class AgentReplayHandler(BaseCallbackHandler):
 
         if step is not None:
             ev_source = self._determine_source(step)
-            self.rec.record_event(
+            ev = self.rec.record_event(
                 kind=EventKind.LLM_CALL,
                 raw_input={"prompt": prompt},
                 output=None,
                 error=str(error),
                 source=ev_source,
                 step=step,
+            )
+            caller_cls = llm_info.get("caller_class", "LLM") if llm_info else "LLM"
+            self.callback_log.append(
+                {
+                    "type": "event",
+                    "step": step.index,
+                    "node": step.node_name,
+                    "seq": ev.seq,
+                    "kind": "llm_call",
+                    "callback": "on_llm_error",
+                    "call_path": f"on_llm_error ({caller_cls})",
+                }
             )
 
         self.rec.trace.status = TraceStatus.FAILED

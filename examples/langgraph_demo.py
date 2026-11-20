@@ -17,8 +17,10 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from agentreplay.db import SessionLocal
 from agentreplay.fork import fork_trace
+from agentreplay.integrations.langgraph import AgentReplayHandler
 from agentreplay.models import Event, Step, Trace
 from agentreplay.replay import ReplayEngine
+from agentreplay.sdk import record_trace
 from demo_agent.lg_agent import run_lg_refund_agent
 from demo_agent.tools import (
     get_refund_ledger,
@@ -42,12 +44,19 @@ def main() -> None:
     print("  True Policy: 7 days | Stale Policy: 30 days")
     print("  Using LangGraph StateGraph with AgentReplayHandler callback...")
 
-    res = run_lg_refund_agent(
-        customer_id="C001",
-        order_id="O103",
-        stale_policy=True,
+    with record_trace(
+        agent_name="lg_refund_agent",
         description="LangGraph stale policy demo run",
-    )
+        meta={"stale_policy": True},
+    ) as recorder:
+        handler = AgentReplayHandler(recorder)
+        res = run_lg_refund_agent(
+            customer_id="C001",
+            order_id="O103",
+            stale_policy=True,
+            rec=recorder,
+            handler=handler,
+        )
     print(f"  Agent Result: {res.get('result')} | Decision: {res.get('decision')}")
 
     ledger_after_record = get_refund_ledger()
@@ -100,6 +109,31 @@ def main() -> None:
                     f"{s.index:<6} | {s.node_name:<20} | {ev.seq:<4} | {ev.kind.value:<10} | "
                     f"{ev.source.value:<10} | {err_str:<12}"
                 )
+
+        # ------------------------------------------------------------------
+        # Callback Provenance Audit (Computed from Real Data on Handler)
+        # ------------------------------------------------------------------
+        print("\n" + "=" * 80)
+        print("REAL CALLBACK PROVENANCE TABLE (Computed from Handler callback_log)")
+        print("=" * 80)
+        prov_table = handler.get_provenance_table()
+        header_prov = f"{'Type':<6} | {'Step':<4} | {'Node':<20} | {'Seq':<4} | {'Kind':<10} | {'Callback':<16} | {'Provenance / Actual Call Path'}"
+        print(header_prov)
+        print("-" * len(header_prov))
+        for row in prov_table:
+            seq_str = str(row["seq"]) if row["seq"] is not None else "-"
+            print(
+                f"{row['type']:<6} | {row['step']:<4} | {row['node']:<20} | "
+                f"{seq_str:<4} | {row['kind']:<10} | {row['callback']:<16} | {row['call_path']}"
+            )
+        print("\nProvenance Verification:")
+        print("  - Steps: Created by on_chain_start at graph node level.")
+        print("  - Tool Calls: Created by on_tool_start / on_tool_end on @tool instances.")
+        print("  - LLM Call: Created specifically by on_llm_start / on_llm_end callbacks on")
+        print("    RefundLLM (BaseLLM). It did NOT come from on_chat_model_* (since RefundLLM")
+        print("    is a BaseLLM, not a BaseChatModel) and was NOT recorded by demo_agent/llm.py")
+        print("    (which has zero recording logic). Instead, RefundLLM delegates internally")
+        print("    to get_llm() and returns LLMResult to LangChain, triggering on_llm_end.")
 
         # ------------------------------------------------------------------
         # Step 3: Replay and print fidelity report (100%)

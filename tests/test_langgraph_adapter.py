@@ -556,3 +556,61 @@ def test_no_api_key_or_auth_header_stored(db_session, monkeypatch):
             assert secret_key not in (ev.raw_input or "")
             assert secret_auth not in (ev.raw_output or "")
             assert secret_key not in (ev.raw_output or "")
+
+
+# ---------------------------------------------------------------------------
+# 9. Demo Provenance Table Equals Handler Callback Log
+# ---------------------------------------------------------------------------
+
+
+def test_demo_provenance_table_equals_handler_callback_log(db_session, monkeypatch):
+    """The demo's provenance table equals the handler's recorded callback log."""
+    import agentreplay.db as db_mod
+    import agentreplay.sdk as sdk_mod
+
+    monkeypatch.setattr(sdk_mod, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: db_session)
+
+    with record_trace(
+        agent_name="lg_refund_agent",
+        description="Demo provenance test run",
+        meta={"stale_policy": True},
+    ) as rec:
+        handler = AgentReplayHandler(rec)
+        run_lg_refund_agent(
+            customer_id="C001",
+            order_id="O103",
+            stale_policy=True,
+            rec=rec,
+            handler=handler,
+        )
+
+    # 1. Obtain demo provenance table and verify identity with callback log
+    prov_table = handler.get_provenance_table()
+    assert prov_table == handler.callback_log
+    assert len(prov_table) == 10  # 5 steps + 5 events
+
+    # 2. Verify step vs event breakdown
+    step_rows = [r for r in prov_table if r["type"] == "step"]
+    event_rows = [r for r in prov_table if r["type"] == "event"]
+    assert len(step_rows) == 5
+    assert len(event_rows) == 5
+
+    # 3. Steps were created by on_chain_start
+    for r in step_rows:
+        assert r["callback"] == "on_chain_start"
+        assert r["kind"] == "step"
+
+    # 4. Tool events were created by on_tool_end
+    for r in [event_rows[0], event_rows[1], event_rows[2], event_rows[4]]:
+        assert r["callback"] == "on_tool_end"
+        assert r["kind"] == "tool_call"
+
+    # 5. LLM event was created by on_llm_end from BaseLLM wrapper
+    llm_row = event_rows[3]
+    assert llm_row["step"] == 4
+    assert llm_row["node"] == "llm_decide"
+    assert llm_row["kind"] == "llm_call"
+    assert llm_row["callback"] == "on_llm_end"
+    assert "RefundLLM" in llm_row["call_path"]
+    assert "not LangChain ChatModel" in llm_row["call_path"]

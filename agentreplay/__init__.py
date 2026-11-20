@@ -15,6 +15,12 @@ from .models import (
     TraceStatus,
 )
 from .redact import redact_sensitive
+from .registry import (
+    AgentRegistration,
+    UnknownAgentError,
+    get_agent,
+    register_agent,
+)
 from .replay import (
     FidelityReport,
     ReplayContext,
@@ -27,6 +33,7 @@ from .sdk import Recorder, record_trace
 from .test_gen import generate_test, sanitize_trace_id, validate_test
 
 __all__ = [
+    "AgentRegistration",
     "AgentReplayHandler",
     "DiffResult",
     "Event",
@@ -44,14 +51,17 @@ __all__ = [
     "Trace",
     "TraceRunType",
     "TraceStatus",
+    "UnknownAgentError",
     "UnrecordedCall",
     "calculate_replay_fidelity",
     "compute_input_hash",
     "diff_traces",
     "fork_trace",
     "generate_test",
+    "get_agent",
     "record_trace",
     "redact_sensitive",
+    "register_agent",
     "sandbox_mode",
     "sanitize_trace_id",
     "strip_volatile_fields",

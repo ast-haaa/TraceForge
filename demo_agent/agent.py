@@ -442,3 +442,26 @@ def run_refund_agent(
             policy_days_override=policy_days_override,
             fault=fault,
         )
+
+
+# Register refund_agent with AgentReplay
+from agentreplay.registry import register_agent  # noqa: E402
+
+register_agent(
+    name="refund_agent",
+    runner=run_refund_agent,
+    runner_from_step=run_refund_agent_from_step,
+    patch_targets=[
+        "demo_agent.tools.get_customer",
+        "demo_agent.agent.get_customer",
+        "demo_agent.tools.get_orders",
+        "demo_agent.agent.get_orders",
+        "demo_agent.tools.read_refund_policy",
+        "demo_agent.agent.read_refund_policy",
+        "demo_agent.tools.issue_refund",
+        "demo_agent.agent.issue_refund",
+        "demo_agent.agent._stub_llm",
+        "demo_agent.llm.get_llm",
+        "demo_agent.agent.get_llm",
+    ],
+)
