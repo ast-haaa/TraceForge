@@ -173,7 +173,21 @@ Fork overrides for `lg_refund_agent` currently live inside node state (`start_st
 - **Nested Subgraphs**: Subgraphs running as nodes emit child chain callbacks that are currently flattened or skipped rather than nested into hierarchical trace trees.
 - **Arbitrary Third-Party Tools**: Tools that bypass standard Python callables (e.g. C extensions, direct raw HTTP clients embedded in custom classes) cannot be intercepted by `ReplayContext` without custom patch point registration.
 
-## Known limitations (Phase 1-6a)
+## D19 – Read-Only Demo Mode & Subprocess Lockdown (Phase 6b)
+To support public and multi-tenant demonstration environments without security risk or state corruption:
+- **Environment Toggle**: Read-only mode is activated via `AGENTREPLAY_READ_ONLY=1` (or `true`, `yes`, `on`). It defaults to off (`0`) for normal local development.
+- **HTTP Boundary Interception**: A lightweight FastAPI middleware intercepts all mutating HTTP methods (`POST`, `PUT`, `PATCH`, `DELETE`) prior to route handler dispatch. Any mutating attempt immediately returns `HTTP 403 Forbidden` with detail `"AgentReplay is running in read-only mode (AGENTREPLAY_READ_ONLY=1). Mutating operations are disabled."`.
+- **Subprocess Lockdown**: Subprocess validation of generated regression tests is triggered exclusively via `POST /tests/generate`. Rejecting mutating requests at the middleware level guarantees zero subprocesses (`subprocess.run`, `subprocess.Popen`) can be spawned in read-only mode.
+- **Read-Only Accessibility**: All inspection and visualization routes (`GET /`, `GET /trace/{trace_id}`, `GET /fork-diff/{original_id}/{fork_id}`, `GET /tests/{test_id}`, `GET /tests/{test_id}/download`) remain fully functional.
+
+## D20 – CI Pipeline & Offline Invariants (Phase 6b)
+To ensure reliable, deterministic, and zero-cost continuous integration:
+- **Workflow Scope**: GitHub Actions workflow (`.github/workflows/ci.yml`) runs on `push` and `pull_request` on Python 3.12.
+- **Strict Offline Invariant**: CI runs with `LLM_PROVIDER=stub` and `pytest -q -m "not live"`. Live LLM endpoints are never contacted, preventing flakiness, rate-limiting, and network dependencies. No secrets or API keys are stored in CI.
+- **Benchmark Exclusion**: The fault-injection benchmark (`evals/`) is designed for model evaluation and requires extensive live LLM generation and rate-limit backoff. It is strictly excluded from CI. Instead, `tests/test_evals_report.py` enforces that `evals/results.md` exists, parses validly, and contains all four mandatory analytical sections.
+- **Packaging Verification**: CI executes `docker build -t agentreplay:latest .` using the multi-stage `Dockerfile` (based on `python:3.12-slim` with non-root user `appuser`), verifying dependency resolution and packaging integrity on every PR.
+
+## Known limitations (Phase 1-6b)
 - Refund-domain template test generation: Test generation is currently a domain-specific template that
   directly imports `demo_agent` internals (mock orders, ledger reset, `issue_refund` tools) and synthesizes
   refund policy invariants. It does not generalise to arbitrary agents yet.

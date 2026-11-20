@@ -323,6 +323,7 @@ def validate_test(
         cwd = str(_PROJECT_ROOT)
         base_env = os.environ.copy()
         base_env["PYTHONPATH"] = cwd
+        base_env["DATABASE_URL"] = "sqlite:///:memory:"
 
         # 1. Run against BUGGY variant (must FAIL)
         env_buggy = base_env.copy()

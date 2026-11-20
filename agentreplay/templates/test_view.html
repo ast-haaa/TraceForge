@@ -88,9 +88,19 @@
     color: #333;
     max-height: 350px;
   }
+  .read-only-banner {
+    background: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+    padding: .6rem 1rem; border-radius: 4px; margin-bottom: 1.5rem;
+    font-size: .88rem; font-weight: 600;
+  }
 </style>
 </head>
 <body>
+{% if read_only %}
+<div class="read-only-banner">
+  🔒 Read-only demo mode: Mutating operations (forking, test generation) are disabled.
+</div>
+{% endif %}
 <p class="back">
   <a href="/trace/{{ test.trace_id }}">← Back to Trace #{{ test.trace_id }}</a> &nbsp;|&nbsp;
   <a href="/">All Traces</a>

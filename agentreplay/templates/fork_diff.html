@@ -164,9 +164,19 @@
     cursor: pointer;
   }
   .btn-create-test:hover { background: #1557b0; }
+  .read-only-banner {
+    background: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+    padding: .6rem 1rem; border-radius: 4px; margin-bottom: 1.5rem;
+    font-size: .88rem; font-weight: 600;
+  }
 </style>
 </head>
 <body>
+{% if read_only %}
+<div class="read-only-banner">
+  🔒 Read-only demo mode: Mutating operations (forking, test generation) are disabled.
+</div>
+{% endif %}
 <p class="back"><a href="/trace/{{ orig_trace.id }}">← Back to Original Trace #{{ orig_trace.id }}</a> &nbsp;|&nbsp; <a href="/trace/{{ fork_trace.id }}">View Fork Trace #{{ fork_trace.id }}</a></p>
 
 <h1>Trace Diff: #{{ orig_trace.id }} vs #{{ fork_trace.id }}</h1>
@@ -177,6 +187,15 @@
   {{ diff.changed_events|length }} event(s) changed between original and fork.
 </div>
 
+{% if read_only %}
+<div class="test-gen-banner">
+  <div>
+    <strong>Prevent Regressions:</strong>
+    <span style="font-size:.85rem; color:#444">Regression test generation is disabled in read-only demo mode.</span>
+  </div>
+  <button type="button" class="btn-create-test" disabled style="opacity:0.5; cursor:not-allowed;">Create Test (Disabled)</button>
+</div>
+{% else %}
 <div class="test-gen-banner">
   <div>
     <strong>Prevent Regressions:</strong>
@@ -188,6 +207,7 @@
     <button type="submit" class="btn-create-test">Create Test →</button>
   </form>
 </div>
+{% endif %}
 {% else %}
 <div class="banner banner-identical">
   <strong>Identical Traces:</strong> No divergence detected across all steps and events.

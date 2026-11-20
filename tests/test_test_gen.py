@@ -366,13 +366,14 @@ def test_xss_escaping_on_test_page(client, db_session, workspace_tmp_dir):
     # Confirm no |safe filter exists in test_view.html
     template_path = (
         pathlib.Path(__file__).resolve().parent.parent
+        / "agentreplay"
         / "templates"
         / "test_view.html"
     )
     assert template_path.exists()
     content = template_path.read_text(encoding="utf-8")
     assert "|safe" not in content, (
-        "Unsafe '|safe' filter found in templates/test_view.html"
+        "Unsafe '|safe' filter found in agentreplay/templates/test_view.html"
     )
 
 

@@ -375,12 +375,12 @@ def test_html_escaping_holds_on_diff_and_fork_pages(
     import os
 
     template_path = os.path.join(
-        os.path.dirname(__file__), "..", "templates", "fork_diff.html"
+        os.path.dirname(__file__), "..", "agentreplay", "templates", "fork_diff.html"
     )
     with open(template_path, encoding="utf-8") as f:
         content = f.read()
     assert not re.search(r"\|\s*safe", content), (
-        "Found |safe filter in templates/fork_diff.html"
+        "Found |safe filter in agentreplay/templates/fork_diff.html"
     )
 
 

@@ -15,9 +15,12 @@ from .models import Base
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_DB_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agentreplay.db")
+).replace("\\", "/")
 DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
-    "sqlite:///e:/Projects/TraceForge/agentreplay.db",
+    f"sqlite:///{_DEFAULT_DB_FILE}",
 )
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -28,6 +31,19 @@ if DATABASE_URL in ("sqlite://", "sqlite:///:memory:"):
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+def set_database_url(url: str) -> None:
+    """Dynamically rebind database engine and session factory to a new database URL."""
+    global DATABASE_URL, engine, SessionLocal
+    DATABASE_URL = url
+    os.environ["DATABASE_URL"] = url
+    new_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    new_engine_kwargs = {"connect_args": new_connect_args, "echo": False, "future": True}
+    if DATABASE_URL in ("sqlite://", "sqlite:///:memory:"):
+        new_engine_kwargs["poolclass"] = StaticPool
+    engine = create_engine(DATABASE_URL, **new_engine_kwargs)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
 def init_db() -> None:

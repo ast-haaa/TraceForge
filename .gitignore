@@ -1,11 +1,13 @@
 .venv/
+venv/
 __pycache__/
 *.pyc
+demo.db
 *.db
+*.sqlite3
 .pytest_cache/
 .ruff_cache/
 pytest_out.txt
-*.egg-info/
 *.egg-info/
 generated_tests/
 .env

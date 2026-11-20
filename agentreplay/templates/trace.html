@@ -65,9 +65,19 @@
     padding: .4rem 1rem; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: .88rem;
   }
   .btn-fork:hover { background: #2c974b; }
+  .read-only-banner {
+    background: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+    padding: .6rem 1rem; border-radius: 4px; margin-bottom: 1.5rem;
+    font-size: .88rem; font-weight: 600;
+  }
 </style>
 </head>
 <body>
+{% if read_only %}
+<div class="read-only-banner">
+  🔒 Read-only demo mode: Mutating operations (forking, test generation) are disabled.
+</div>
+{% endif %}
 <p class="back"><a href="/">← All Traces</a></p>
 <h1>Trace #{{ trace.id }} – {{ trace.agent_name }}</h1>
 <div class="meta">
@@ -87,6 +97,33 @@
 </div>
 {% endif %}
 
+{% if read_only %}
+<div class="fork-card read-only-fork">
+  <h3>Fork this Trace (Disabled)</h3>
+  <p class="fork-desc" style="color:#777">Forking and sandbox execution are disabled in read-only demo mode.</p>
+  <fieldset disabled style="border:none; padding:0; margin:0;">
+    <div class="form-row">
+      <label for="step_index"><strong>Branch Step:</strong></label>
+      <select name="step_index" id="step_index" disabled>
+        {% for step in steps %}
+        <option value="{{ step.index }}">Step {{ step.index }} – {{ step.node_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="override_type"><strong>Override Target:</strong></label>
+      <select name="override_type" id="override_type" disabled>
+        <option value="tool_output">Tool Output (e.g. policy text or JSON)</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="override_value"><strong>Override Content:</strong></label>
+      <textarea name="override_value" id="override_value" rows="3" disabled placeholder="Disabled in read-only demo"></textarea>
+    </div>
+    <button type="button" class="btn-fork" disabled style="opacity:0.5; cursor:not-allowed;">Fork Disabled (Read-Only Demo)</button>
+  </fieldset>
+</div>
+{% else %}
 <div class="fork-card">
   <h3>Fork this Trace</h3>
   <p class="fork-desc">Choose a step to branch from, specify replacement tool output or LLM prompt, and run forward safely in the sandbox.</p>
@@ -114,6 +151,7 @@
     <button type="submit" class="btn-fork">Fork Trace →</button>
   </form>
 </div>
+{% endif %}
 
 {% for step in steps %}
 <div class="step">
@@ -133,33 +171,32 @@
       <span class="badge badge-{{ ev.kind.value }}">{{ ev.kind.value }}</span>
       <span class="badge badge-src">{{ ev.source.value }}</span>
       <span style="font-size:.78rem;color:#888">seq {{ ev.seq }} | hash {{ ev.input_hash[:12] }}…</span>
+      {% if ev.error %}<span style="color:#c0392b;font-weight:700;font-size:.78rem">ERROR</span>{% endif %}
     </div>
 
     {% if ev.error %}
-    <div class="error-box">⚠ Error: {{ ev.error }}</div>
+    <div class="error-box">
+      <strong>Error:</strong> {{ ev.error }}
+    </div>
     {% endif %}
 
-    <details {% if ev.error %}open{% endif %}>
+    {% if ev.raw_input %}
+    <details style="margin-top:.3rem">
       <summary>Input</summary>
       <pre>{{ ev.raw_input }}</pre>
     </details>
-    <details open>
+    {% endif %}
+
+    {% if ev.raw_output %}
+    <details style="margin-top:.3rem">
       <summary>Output</summary>
       <pre>{{ ev.raw_output }}</pre>
     </details>
+    {% endif %}
   </div>
   {% endfor %}
-
-  <div style="padding:.4rem .9rem; background:#fafafa; font-size:.77rem; color:#888; border-top:1px solid #eee;">
-    state_before / state_after:
-    <details>
-      <summary>state_before</summary><pre>{{ step.state_before | tojson(indent=2) }}</pre>
-    </details>
-    <details>
-      <summary>state_after</summary><pre>{{ step.state_after | tojson(indent=2) }}</pre>
-    </details>
-  </div>
 </div>
 {% endfor %}
+
 </body>
 </html>

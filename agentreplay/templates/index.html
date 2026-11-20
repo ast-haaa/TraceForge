@@ -16,9 +16,19 @@
   a { color: #1a73e8; text-decoration: none; }
   a:hover { text-decoration: underline; }
   .empty { color: #888; margin-top: 2rem; }
+  .read-only-banner {
+    background: #fff3cd; color: #856404; border: 1px solid #ffeeba;
+    padding: .6rem 1rem; border-radius: 4px; margin-bottom: 1.5rem;
+    font-size: .88rem; font-weight: 600;
+  }
 </style>
 </head>
 <body>
+{% if read_only %}
+<div class="read-only-banner">
+  🔒 Read-only demo mode: Mutating operations (forking, test generation) are disabled.
+</div>
+{% endif %}
 <h1>AgentReplay – Recorded Traces</h1>
 {% if traces %}
 <table>

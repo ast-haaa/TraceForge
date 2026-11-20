@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test:
+    name: Lint, Test, and Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: |
+          ruff check .
+
+      - name: Run test suite (offline / stub LLM)
+        env:
+          LLM_PROVIDER: stub
+          AGENTREPLAY_READ_ONLY: "0"
+        run: |
+          pytest -q -m "not live"
+
+      - name: Build Docker image
+        run: |
+          docker build -t agentreplay:latest .
+
+      - name: Run container and test endpoints (healthz, index, trace)
+        run: |
+          docker run -d --name agentreplay-app -p 8000:8000 agentreplay:latest
+          
+          READY=0
+          for i in $(seq 1 15); do
+            echo "Checking container readiness... attempt $i"
+            if curl -s -f http://127.0.0.1:8000/healthz; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          
+          if [ "$READY" -ne 1 ]; then
+            echo "Error: Container failed to start within timeout"
+            docker logs agentreplay-app
+            exit 1
+          fi
+
+          echo "Verifying /healthz..."
+          curl -s -f http://127.0.0.1:8000/healthz | grep '"status":"ok"' || exit 1
+
+          echo "Verifying /..."
+          curl -s -f http://127.0.0.1:8000/ | grep "AgentReplay" || exit 1
+
+          echo "Verifying /trace/1..."
+          curl -s -f http://127.0.0.1:8000/trace/1 | grep "Trace #1" || exit 1
+
+          docker stop agentreplay-app
+          docker rm agentreplay-app

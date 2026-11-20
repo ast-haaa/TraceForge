@@ -2,7 +2,9 @@
 name = "agentreplay"
 version = "0.1.0"
 description = "Debugger and regression-testing platform for LLM agents"
+readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -16,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+demo = [
+    "pytest>=8",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
@@ -30,6 +35,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agentreplay*", "demo_agent*"]
+
+[tool.setuptools.package-data]
+agentreplay = ["templates/*"]
 
 [tool.ruff]
 line-length = 100

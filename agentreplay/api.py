@@ -15,7 +15,7 @@ import json
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -30,8 +30,28 @@ init_db()
 
 app = FastAPI(title="AgentReplay")
 
-_TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+_TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 templates = Jinja2Templates(directory=_TEMPLATE_DIR)
+
+
+def is_read_only() -> bool:
+    """Check if the server is running in read-only demo mode."""
+    return os.getenv("AGENTREPLAY_READ_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+@app.middleware("http")
+async def check_read_only_mode(request: Request, call_next):
+    if is_read_only() and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": (
+                    "AgentReplay is running in read-only mode (AGENTREPLAY_READ_ONLY=1). "
+                    "Mutating operations are disabled."
+                ),
+            },
+        )
+    return await call_next(request)
 
 
 def get_db():
@@ -47,10 +67,20 @@ def get_db():
 # ---------------------------------------------------------------------------
 
 
+@app.get("/healthz")
+def healthz():
+    """Health check endpoint for container orchestrators and monitoring."""
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 def list_traces(request: Request, db: Session = Depends(get_db)):
     traces = db.query(Trace).order_by(Trace.created_at.desc()).all()
-    return templates.TemplateResponse(request=request, name="index.html", context={"traces": traces})
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={"traces": traces, "read_only": is_read_only()},
+    )
 
 
 @app.get("/trace/{trace_id}", response_class=HTMLResponse)
@@ -76,11 +106,12 @@ def view_trace(request: Request, trace_id: int, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request=request,
         name="trace.html",
-        context={"trace": trace, "steps": steps},
+        context={"trace": trace, "steps": steps, "read_only": is_read_only()},
     )
 
 
 @app.post("/traces/")
+@app.post("/traces")
 def ingest_trace(payload: dict, db: Session = Depends(get_db)):
     """Idempotent ingest – returns existing trace if run_id already exists."""
     run_id = payload.get("run_id")
@@ -182,6 +213,7 @@ def view_fork_diff(
             "diff": diff_result,
             "orig_trace": orig_trace,
             "fork_trace": fork_trace_obj,
+            "read_only": is_read_only(),
         },
     )
 
@@ -238,7 +270,7 @@ def view_generated_test(
     return templates.TemplateResponse(
         request=request,
         name="test_view.html",
-        context={"test": gen_test},
+        context={"test": gen_test, "read_only": is_read_only()},
     )
 
 

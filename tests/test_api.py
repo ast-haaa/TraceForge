@@ -160,7 +160,7 @@ def test_no_safe_filter_in_templates():
     """Confirm no Jinja2 template uses |safe on rendered fields."""
     import pathlib
 
-    template_dir = pathlib.Path(__file__).resolve().parent.parent / "templates"
+    template_dir = pathlib.Path(__file__).resolve().parent.parent / "agentreplay" / "templates"
     for html_file in template_dir.glob("*.html"):
         content = html_file.read_text(encoding="utf-8")
         assert "|safe" not in content, f"Found unsafe '|safe' filter in {html_file.name}"

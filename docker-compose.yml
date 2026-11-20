@@ -1,0 +1,14 @@
+services:
+  agentreplay:
+    build: .
+    image: agentreplay:latest
+    container_name: agentreplay
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENTREPLAY_READ_ONLY=1
+      - LLM_PROVIDER=stub
+      - PORT=8000
+    volumes:
+      - ./agentreplay.db:/app/agentreplay.db
+    restart: unless-stopped
