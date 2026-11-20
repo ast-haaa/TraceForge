@@ -3,6 +3,7 @@
 from .diff import DiffResult, EventDiff, StepDiff, diff_traces
 from .fork import fork_trace, sandbox_mode
 from .hash import compute_input_hash, strip_volatile_fields
+from .integrations.langgraph import AgentReplayHandler
 from .models import (
     Event,
     EventKind,
@@ -26,6 +27,7 @@ from .sdk import Recorder, record_trace
 from .test_gen import generate_test, sanitize_trace_id, validate_test
 
 __all__ = [
+    "AgentReplayHandler",
     "DiffResult",
     "Event",
     "EventDiff",

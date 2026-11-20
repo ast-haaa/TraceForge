@@ -92,7 +92,7 @@ class Recorder:
                 run_id=run_id,
                 agent_name=agent_name,
                 description=description,
-                meta=meta or {},
+                meta=redact_sensitive(meta or {}),
                 status=TraceStatus.RECORDING,
                 run_type=run_type,
                 agent_version=agent_version,
@@ -146,11 +146,12 @@ class Recorder:
         output_tokens: int = 0,
         cost: float = 0.0,
         latency_ms: float | None = None,
+        step: Step | None = None,
     ) -> None:
         """Finalise the current step with its after-state and metrics."""
-        if self._current_step is None:
+        s = step or self._current_step
+        if s is None:
             raise RuntimeError("end_step() called without an active step")
-        s = self._current_step
         s.state_after = redact_sensitive(state_after or {})
         s.model = model
         s.input_tokens = input_tokens
@@ -158,7 +159,8 @@ class Recorder:
         s.cost = cost
         s.latency_ms = latency_ms
         self.db.flush()
-        self._current_step = None
+        if self._current_step is s:
+            self._current_step = None
 
     # ------------------------------------------------------------------
     # Event recording
@@ -172,12 +174,14 @@ class Recorder:
         *,
         error: str | None = None,
         source: EventSource = EventSource.RECORDED,
+        step: Step | None = None,
     ) -> Event:
         """Record one event inside the active step.
 
         ``raw_input`` and ``output`` are redacted before hashing and storage.
         """
-        if self._current_step is None:
+        target_step = step or self._current_step
+        if target_step is None:
             raise RuntimeError("record_event() called without an active step")
         self._event_seq += 1
 
@@ -189,7 +193,7 @@ class Recorder:
         input_hash = compute_input_hash(safe_input)
 
         event = Event(
-            step_id=self._current_step.id,
+            step_id=target_step.id,
             kind=kind,
             seq=self._event_seq,
             input_hash=input_hash,

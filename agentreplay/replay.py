@@ -334,19 +334,24 @@ class ReplayContext:
         def mock_get_llm() -> Callable[..., Any]:
             return mock_llm_call
 
-        # Apply patches across both demo_agent.tools and demo_agent.agent
+        # Apply patches across demo_agent.tools, demo_agent.agent, and demo_agent.lg_agent
         targets = [
             ("demo_agent.tools.get_customer", mock_get_customer),
             ("demo_agent.agent.get_customer", mock_get_customer),
+            ("demo_agent.lg_agent.get_customer", mock_get_customer),
             ("demo_agent.tools.get_orders", mock_get_orders),
             ("demo_agent.agent.get_orders", mock_get_orders),
+            ("demo_agent.lg_agent.get_orders", mock_get_orders),
             ("demo_agent.tools.read_refund_policy", mock_read_refund_policy),
             ("demo_agent.agent.read_refund_policy", mock_read_refund_policy),
+            ("demo_agent.lg_agent.read_refund_policy", mock_read_refund_policy),
             ("demo_agent.tools.issue_refund", mock_issue_refund),
             ("demo_agent.agent.issue_refund", mock_issue_refund),
+            ("demo_agent.lg_agent.issue_refund", mock_issue_refund),
             ("demo_agent.agent._stub_llm", mock_stub_llm),
             ("demo_agent.llm.get_llm", mock_get_llm),
             ("demo_agent.agent.get_llm", mock_get_llm),
+            ("demo_agent.lg_agent.get_llm", mock_get_llm),
         ]
 
         for target_str, mock_fn in targets:

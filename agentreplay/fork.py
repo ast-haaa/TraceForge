@@ -219,6 +219,27 @@ def fork_trace(
                         stale_policy=stale_policy,
                         policy_days_override=policy_override,
                     )
+                elif orig_trace.agent_name == "lg_refund_agent":
+                    from demo_agent.lg_agent import run_lg_refund_agent_from_step
+
+                    stale_policy = (
+                        orig_trace.meta.get("stale_policy", False)
+                        if orig_trace.meta
+                        else False
+                    )
+                    policy_override = (
+                        orig_trace.meta.get("policy_days_override")
+                        if orig_trace.meta
+                        else None
+                    )
+                    run_lg_refund_agent_from_step(
+                        rec=recorder,
+                        start_step=step_index,
+                        restored_state=restored_state,
+                        overrides=overrides,
+                        stale_policy=stale_policy,
+                        policy_days_override=policy_override,
+                    )
                 else:
                     raise ValueError(f"No agent runner available for {orig_trace.agent_name}")
 

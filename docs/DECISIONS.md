@@ -126,7 +126,34 @@ Running `scripts/live_check.py` 10 times with `temperature=0.0` against Groq on 
 - **Replay Fidelity**: Replaying recorded real-LLM trace #95 with `ReplayEngine.replay_agent` matched 5/5 events (100.0% fidelity) with zero live network calls.
 - **Fork Safety**: Forking trace #95 at Step 3 with the 7-day policy replayed steps 1–2, applied the override at step 3, invoked the live LLM at step 4 to yield `DENY`, and kept all side-effecting tools sandboxed.
 
-## Known limitations (Phase 1-4.5)
+## D18 – LangGraph Adapter Architecture & Callback Mapping (Phase 6a)
+The LangGraph integration (`agentreplay/integrations/langgraph.py:AgentReplayHandler`) attaches to LangGraph runs via standard LangChain callback configuration:
+```python
+with record_trace(agent_name="lg_refund_agent", description="...") as rec:
+    graph.invoke(inputs, config={"callbacks": [AgentReplayHandler(rec)]})
+```
+This enables zero-instrumentation tracing: agent code contains no `rec.start_step` or `rec.record_event` invocations.
+
+### Supported Features
+- **StateGraph Synchronous Execution**: Full support for `graph.invoke()` on compiled `StateGraph` workflows.
+- **Step & State Capture**: Each graph node execution is mapped to one `Step`, capturing `state_before` on node entry and `state_after` on completion. Tag filtering (`graph:step:*`) isolates real node executions from internal LangGraph conditional routing sequences (`seq:step:*`).
+- **Interleaved Callback Matching**: Nodes, LLM calls, and tool calls are tracked via a dictionary keyed on `run_id`, correctly matching start and end events across nested or interleaved executions.
+- **Incremental Persistence & Error Handling**: Exceptions inside tools or nodes invoke `on_tool_error` / `on_chain_error`, immediately flushing the error message to the active event and marking the trace `FAILED`.
+- **Replay & Forking Parity**: LangGraph runs achieve 100% replay fidelity under `ReplayEngine.replay_agent` and cleanly support step-level branching via `fork_trace`.
+
+### Tool and LLM Patch Points for Replay
+Deterministic replay and sandbox forking require intercepting execution before side effects or external LLM calls occur. In the LangGraph adapter, tool and model invocations route through standardized callables:
+- **Tool Patches**: `demo_agent.tools.*` and `demo_agent.lg_agent.*` (`get_customer`, `get_orders`, `read_refund_policy`, `issue_refund`).
+- **LLM Patches**: `demo_agent.llm.get_llm` and `demo_agent.lg_agent.get_llm`.
+During replay, `ReplayContext` intercepts calls to these targets and returns recorded outputs matched by `(node_name, input_hash, occurrence)`.
+
+### Unsupported LangGraph Features & Known Limitations
+- **Streaming (`graph.stream()`, `graph.astream()`)**: Token-by-token or chunk-by-chunk streaming is not yet supported. Only completed node invocations and generation results are recorded.
+- **Asynchronous Execution (`graph.ainvoke()`, `asyncio`)**: The callback handler and SDK use synchronous SQLAlchemy sessions. Asynchronous graph execution will block or cause concurrency conflicts on shared sessions.
+- **Nested Subgraphs**: Subgraphs running as nodes emit child chain callbacks that are currently flattened or skipped rather than nested into hierarchical trace trees.
+- **Arbitrary Third-Party Tools**: Tools that bypass standard Python callables (e.g. C extensions, direct raw HTTP clients embedded in custom classes) cannot be intercepted by `ReplayContext` without custom patch point registration.
+
+## Known limitations (Phase 1-6a)
 - Refund-domain template test generation: Test generation is currently a domain-specific template that
   directly imports `demo_agent` internals (mock orders, ledger reset, `issue_refund` tools) and synthesizes
   refund policy invariants. It does not generalise to arbitrary agents yet.
