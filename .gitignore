@@ -16,3 +16,5 @@ generated_tests/
 evals/*.tmp
 venv/
 .venv/
+live_out.txt
+pytest_out.txt
