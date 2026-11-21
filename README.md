@@ -1,8 +1,8 @@
-# AgentReplay
+# TraceForge
 
-> **Failure → Replay → Fork → Regression Test**
+> **Deterministic AI Observability, Offline Replay & Autonomous Pytest Shield Synthesis**
 
-AgentReplay is an offline debugger, deterministic replay engine, and regression-testing platform for autonomous LLM agents (LangGraph). When an agent makes a faulty decision in production, AgentReplay lets developers capture the trace, deterministically replay it offline without API costs, fork execution at the exact point of divergence with corrected inputs, and synthesize validated pytest regression tests for CI.
+**TraceForge** is an offline debugger, deterministic flight recorder, and regression-testing platform for autonomous LLM agents (LangGraph). When an agent makes a faulty decision in production, TraceForge lets developers capture the trajectory, deterministically replay it offline without API costs, fork execution at the exact point of divergence with corrected inputs, and synthesize validated pytest regression tests for CI.
 
 ---
 
@@ -123,10 +123,10 @@ Build and run using Docker:
 
 ```bash
 # Build the container image
-docker build -t agentreplay:latest .
+docker build -t traceforge:latest .
 
 # Run with local database volume mounted
-docker run -p 8000:8000 -v $(pwd)/agentreplay.db:/app/agentreplay.db agentreplay:latest
+docker run -p 8000:8000 -v $(pwd)/agentreplay.db:/app/agentreplay.db traceforge:latest
 ```
 
 Or start with Docker Compose:
@@ -191,7 +191,7 @@ pytest generated_tests/ -v
 
 ---
 
-## Using AgentReplay with Your Own Agent
+## Using TraceForge with Your Own Agent
 
 ### 1. Recording is Generic
 Any synchronous LangGraph `StateGraph` can be traced without modifying the agent's internal business logic using `AgentReplayHandler`:
@@ -236,10 +236,10 @@ If an unregistered agent is passed to `fork_trace` or `replay_agent`, AgentRepla
 
 ## Known Limitations
 
-AgentReplay is designed with strict engineering boundaries. To maintain transparency, here is what it **cannot** do:
+TraceForge is designed with strict engineering boundaries. To maintain transparency, here is what it **cannot** do:
 
 1. **Does Not Support Arbitrary Agents Automatically:**  
-   AgentReplay does **not** claim to work with any arbitrary agent out of the box. Replay and forking require explicit registration of external side-effect points (`register_agent`). Unregistered side-effects will either leak to production or fail.
+   TraceForge does **not** claim to work with any arbitrary agent out of the box. Replay and forking require explicit registration of external side-effect points (`register_agent`). Unregistered side-effects will either leak to production or fail.
 2. **Domain-Specific Regression Test Synthesis:**  
    The regression test generator (`agentreplay/test_gen.py`) is currently a domain-specific template tailored to refund workflows and boundary policies (`days_old`). Generalized semantic test generation for arbitrary domain schemas is not yet supported.
 3. **Synchronous Execution Only:**  
