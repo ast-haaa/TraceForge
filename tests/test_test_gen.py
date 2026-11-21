@@ -15,7 +15,7 @@ from agentreplay import api
 from agentreplay.api import app
 from agentreplay.fork import fork_trace
 from agentreplay.models import GeneratedTest, Trace
-from agentreplay.test_gen import generate_test, sanitize_trace_id, validate_test
+from agentreplay.test_gen import generate_test, sanitize_paths, sanitize_trace_id, validate_test
 from demo_agent.agent import run_refund_agent
 from demo_agent.tools import reset_ledger
 
@@ -436,3 +436,60 @@ def test_api_generate_and_download_endpoints(
     assert res_dl.status_code == 200
     assert "test_out_of_window_refund_denied" in res_dl.text
     assert "attachment;" in res_dl.headers.get("content-disposition", "")
+
+
+def test_pytest_output_path_sanitization_in_db(
+    db_session, workspace_tmp_dir, monkeypatch
+):
+    """Absolute local paths (e.g. C:\\Users\\SOMEONE, E:\\Projects) must be replaced
+
+    with neutral placeholders before storing in DB (and before rendering).
+    """
+    fake_raw_output = (
+        "=== RUN 1: BUGGY VARIANT (expected failure) ===\n"
+        "C:\\Users\\SOMEONE\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest\n"
+        "rootdir: E:\\Projects\\TraceForge\n"
+        "Failure in E:\\Projects\\TraceForge\\demo_agent\\agent.py:42\n"
+        "Traceback (most recent call last):\n"
+        '  File "C:\\Users\\SOMEONE\\AppData\\Local\\Temp\\test_run.py", line 15, in test_fn\n'
+        "AssertionError: Expected denial\n"
+    )
+
+    # 1. Direct sanitize_paths assertions
+    cleaned = sanitize_paths(fake_raw_output)
+    assert "C:\\Users\\SOMEONE" not in cleaned
+    assert "E:\\Projects" not in cleaned
+    assert "<PROJECT>" in cleaned
+    assert "<USER_HOME>" in cleaned
+
+    # 2. Database validation flow: ensure validate_test stores sanitized output
+    dummy_file = workspace_tmp_dir / "test_trace_6666.py"
+    dummy_file.write_text("def test_dummy(): assert False\n", encoding="utf-8")
+
+    fake_test = GeneratedTest(
+        trace_id=6666,
+        description="Sanitization DB test",
+        test_code="def test_dummy(): assert False\n",
+        file_path=str(dummy_file),
+        status="pending",
+    )
+    db_session.add(fake_test)
+    db_session.commit()
+
+    class MockProc:
+        returncode = 1
+        stdout = fake_raw_output
+        stderr = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: MockProc())
+
+    validated = validate_test(fake_test.id, db=db_session)
+    stored = db_session.query(GeneratedTest).filter_by(id=fake_test.id).one()
+
+    assert stored.pytest_output is not None
+    assert "C:\\Users\\SOMEONE" not in stored.pytest_output
+    assert "E:\\Projects" not in stored.pytest_output
+    assert "<PROJECT>" in stored.pytest_output
+    assert "<USER_HOME>" in stored.pytest_output
+    assert validated.pytest_output == stored.pytest_output
+

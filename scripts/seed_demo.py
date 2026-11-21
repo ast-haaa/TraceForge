@@ -57,6 +57,7 @@ def main() -> None:
     os.environ["DATABASE_URL"] = target_db_url
 
     from agentreplay.db import SessionLocal, init_db, set_database_url
+    from agentreplay.db import engine as db_engine
     from agentreplay.fork import fork_trace
     from agentreplay.integrations.langgraph import AgentReplayHandler
     from agentreplay.models import (
@@ -211,7 +212,11 @@ def main() -> None:
     )
     print(f"  -> Generated Test #{gen_test.id} at {gen_test.file_path}")
 
-    val_test = validate_test(generated_test_id=gen_test.id, db=session)
+    val_test = validate_test(
+        generated_test_id=gen_test.id,
+        db=session,
+        python_executable=sys.executable,
+    )
     print(f"  -> Validation Status : {val_test.status.upper()}")
     print(f"  -> Fails on Buggy    : {val_test.fails_on_buggy}")
     print(f"  -> Passes on Fixed   : {val_test.passes_on_fixed}")
@@ -251,6 +256,14 @@ def main() -> None:
     print(f"{'EvalLabel (Total)':<35} | {'Ground truth labels':<25} | {total_eval_labels:<10}")
     print("=" * 76)
     print("Demo database seeding complete.\n")
+
+    session.close()
+    if target_db_url.startswith("sqlite"):
+        try:
+            with db_engine.connect() as conn:
+                conn.exec_driver_sql("VACUUM")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

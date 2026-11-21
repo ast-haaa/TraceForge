@@ -2,201 +2,555 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>AgentReplay – Trace #{{ trace.id }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TraceForge — Trace #{{ trace.id }} ({{ trace.agent_name }})</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; color: #222; }
-  h1   { font-size: 1.5rem; margin-bottom: .4rem; }
-  .meta { font-size: .85rem; color: #555; margin-bottom: 1.5rem; }
-  .status-completed { color: #2a7a2a; font-weight: 700; }
-  .status-failed    { color: #c0392b; font-weight: 700; }
-  .status-recording { color: #d68910; font-weight: 700; }
-
-  .step  { border: 1px solid #ddd; border-radius: 6px; margin-bottom: 1.2rem; overflow: hidden; }
-  .step-header {
-    background: #f7f7f7; padding: .5rem .9rem;
-    display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid #ddd;
+  :root {
+    --bg-base: #060709;
+    --bg-surface: #0B0D12;
+    --bg-card: rgba(12, 14, 20, 0.75);
+    --bg-card-hover: rgba(18, 22, 32, 0.9);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-bright: rgba(255, 255, 255, 0.16);
+    --border-ghost: rgba(180, 151, 207, 0.35);
+    --text-primary: #FFFFFF;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --ghost-lavender: #B497CF;
+    --ghost-lavender-glow: rgba(180, 151, 207, 0.22);
+    --accent-emerald: #00F59B;
+    --accent-coral: #FF4D6D;
+    --accent-amber: #F59E0B;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", Consolas, "Liberation Mono", Menlo, Courier, monospace;
   }
-  .step-header h3 { margin: 0; font-size: 1rem; }
-  .step-metrics { font-size: .78rem; color: #666; }
 
-  .event { padding: .6rem .9rem; border-bottom: 1px solid #eee; }
-  .event:last-child { border-bottom: none; }
-  .event-header { display: flex; gap: .6rem; align-items: center; margin-bottom: .3rem; }
-  .badge {
-    font-size: .72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; color: #fff;
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding-bottom: 5rem;
+    -webkit-font-smoothing: antialiased;
   }
-  .badge-llm_call  { background: #1a73e8; }
-  .badge-tool_call { background: #0a8a4b; }
-  .badge-state     { background: #7b2d8b; }
-  .badge-src { background: #888; font-size: .68rem; }
-  .error-box { background: #fff0f0; border: 1px solid #f5c6c6; border-radius: 4px;
-               padding: .4rem .6rem; color: #c0392b; font-size: .82rem; margin-top: .3rem; }
 
-  details summary { cursor: pointer; font-size: .82rem; color: #1a73e8; }
-  pre { background: #f4f4f4; padding: .6rem; border-radius: 4px;
-        font-size: .78rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; }
-
-  .back { font-size: .88rem; margin-bottom: 1rem; }
-  a { color: #1a73e8; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-
-  .final-output { background: #f0f8f0; border: 1px solid #c3e6cb;
-                  border-radius: 6px; padding: .8rem 1rem; margin-bottom: 1.5rem; }
-  .final-output h3 { margin: 0 0 .4rem; font-size: .95rem; }
-
-  .fork-card {
-    background: #fafbfc;
-    border: 1px solid #d0d7de;
+  .top-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(6, 7, 9, 0.9);
+    backdrop-filter: blur(20px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+    color: var(--text-primary);
+  }
+  .brand-logo {
+    width: 26px;
+    height: 26px;
     border-radius: 6px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 1.5rem;
+    background: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    color: #060709;
+    font-size: 0.85rem;
   }
-  .fork-card h3 { margin: 0 0 .4rem; font-size: 1.05rem; }
-  .fork-desc { font-size: .85rem; color: #555; margin: 0 0 .8rem; }
-  .form-row { margin-bottom: .6rem; }
-  .form-row label { display: block; font-size: .82rem; margin-bottom: .2rem; }
+  .brand-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #FFFFFF;
+  }
+  .nav-back {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    transition: color 0.15s ease;
+  }
+  .nav-back:hover { color: #FFFFFF; }
+
+  .page-container {
+    max-width: 1100px;
+    margin: 2.5rem auto 0;
+    padding: 0 1.5rem;
+  }
+
+  /* Mode Banner - Minimal Sleek Dark Pill */
+  .read-only-banner {
+    background: rgba(255, 255, 255, 0.03);
+    color: #94A3B8;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.65rem 1.15rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    backdrop-filter: blur(12px);
+  }
+
+  .summary-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 1.75rem;
+    backdrop-filter: blur(14px);
+  }
+  .summary-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .summary-top h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .meta-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+  .meta-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle);
+    padding: 3px 10px;
+    border-radius: 6px;
+  }
+  .meta-item code {
+    color: var(--ghost-lavender);
+  }
+  .meta-item a {
+    color: var(--ghost-lavender);
+    text-decoration: none;
+  }
+  .meta-item a:hover { text-decoration: underline; }
+
+  .status-badge {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .status-completed {
+    background: rgba(0, 245, 155, 0.08);
+    color: var(--accent-emerald);
+    border: 1px solid rgba(0, 245, 155, 0.25);
+  }
+  .status-failed {
+    background: rgba(255, 77, 109, 0.08);
+    color: var(--accent-coral);
+    border: 1px solid rgba(255, 77, 109, 0.25);
+  }
+  .status-recording {
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--accent-amber);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+  }
+
+  .final-output {
+    background: rgba(0, 245, 155, 0.03);
+    border: 1px solid rgba(0, 245, 155, 0.18);
+    border-radius: 10px;
+    padding: 1.15rem 1.35rem;
+    margin-bottom: 1.75rem;
+  }
+  .final-output h3 {
+    font-size: 0.86rem;
+    color: var(--accent-emerald);
+    font-family: var(--font-mono);
+    margin-bottom: 0.5rem;
+  }
+  .final-output pre {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: #CBD5E1;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 280px;
+    overflow: auto;
+  }
+
+  /* Fork Studio Card */
+  .fork-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 2rem;
+  }
+  .fork-card h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+  }
+  .fork-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 1.15rem;
+  }
+  .form-row {
+    margin-bottom: 0.95rem;
+  }
+  .form-row label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+  }
   .form-row select, .form-row textarea {
-    width: 100%; box-sizing: border-box; padding: .4rem .6rem;
-    font-family: inherit; font-size: .85rem; border: 1px solid #ccc; border-radius: 4px;
+    width: 100%;
+    background: #050608;
+    color: #FFFFFF;
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
+    padding: 0.6rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    box-sizing: border-box;
   }
   .btn-fork {
-    background: #2ea44f; color: #fff; border: 1px solid rgba(27,31,35,.15);
-    padding: .4rem 1rem; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: .88rem;
+    background: #FFFFFF;
+    color: #060709;
+    border: none;
+    padding: 0.55rem 1.25rem;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.84rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
   }
-  .btn-fork:hover { background: #2c974b; }
-  .read-only-banner {
-    background: #fff3cd; color: #856404; border: 1px solid #ffeeba;
-    padding: .6rem 1rem; border-radius: 4px; margin-bottom: 1.5rem;
-    font-size: .88rem; font-weight: 600;
+  .btn-fork:hover {
+    background: #F1F5F9;
+    box-shadow: 0 0 16px rgba(180, 151, 207, 0.4);
+  }
+  .btn-fork:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+  }
+
+  /* Execution Timeline Steps */
+  .timeline-label {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ghost-lavender);
+    margin-bottom: 0.85rem;
+    font-weight: 700;
+  }
+  .step-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    margin-bottom: 1.15rem;
+    overflow: hidden;
+  }
+  .step-header {
+    background: rgba(14, 17, 24, 0.9);
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .step-node-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+  }
+  .step-node-name code {
+    font-family: var(--font-mono);
+    color: var(--ghost-lavender);
+    font-size: 0.82rem;
+  }
+  .step-metrics {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--text-muted);
+  }
+
+  .step-states {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0.85rem 1.25rem;
+    background: rgba(5, 7, 10, 0.6);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .state-box h4 {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+  }
+  .state-box pre {
+    background: #050608;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 0.6rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: #CBD5E1;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow: auto;
+  }
+
+  .event-row {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+  .event-row:last-child { border-bottom: none; }
+  .event-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+  }
+  .badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .badge-llm_call { background: rgba(59, 130, 246, 0.2); color: #93C5FD; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .badge-tool_call { background: rgba(0, 245, 155, 0.15); color: #00F59B; border: 1px solid rgba(0, 245, 155, 0.25); }
+  .badge-state { background: rgba(180, 151, 207, 0.2); color: #E9D5FF; border: 1px solid rgba(180, 151, 207, 0.3); }
+  .badge-src { background: rgba(255, 255, 255, 0.06); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+
+  .error-callout {
+    background: rgba(255, 77, 109, 0.08);
+    border: 1px solid rgba(255, 77, 109, 0.25);
+    border-radius: 6px;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.78rem;
+    color: #FFA2B0;
+    margin-top: 0.4rem;
+  }
+  details summary {
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--ghost-lavender);
+    margin-top: 0.35rem;
+    user-select: none;
+  }
+  details summary:hover { text-decoration: underline; }
+  details pre {
+    background: #050608;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 0.65rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: #CBD5E1;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 250px;
+    overflow: auto;
+    margin-top: 0.4rem;
+  }
+
+  @media (max-width: 768px) {
+    .step-states { grid-template-columns: 1fr; }
+    .top-nav { padding: 1rem 1.25rem; }
   }
 </style>
 </head>
 <body>
-{% if read_only %}
-<div class="read-only-banner">
-  🔒 Read-only demo mode: Mutating operations (forking, test generation) are disabled.
-</div>
-{% endif %}
-<p class="back"><a href="/">← All Traces</a></p>
-<h1>Trace #{{ trace.id }} – {{ trace.agent_name }}</h1>
-<div class="meta">
-  Run&nbsp;ID:&nbsp;<code>{{ trace.run_id }}</code> &nbsp;|&nbsp;
-  Status:&nbsp;<span class="status-{{ trace.status.value }}">{{ trace.status.value }}</span> &nbsp;|&nbsp;
-  Type:&nbsp;{{ trace.run_type.value }} &nbsp;|&nbsp;
-  Created:&nbsp;{{ trace.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
-  {% if trace.description %}&nbsp;|&nbsp;{{ trace.description }}{% endif %}
-  {% if trace.agent_version %}&nbsp;|&nbsp;v{{ trace.agent_version }}{% endif %}
-  {% if trace.parent_trace_id %}&nbsp;|&nbsp;Fork of <a href="/trace/{{ trace.parent_trace_id }}">#{{ trace.parent_trace_id }}</a> @step {{ trace.fork_step }}{% endif %}
-</div>
 
-{% if trace.final_output %}
-<div class="final-output">
-  <h3>Final Output</h3>
-  <pre>{{ trace.final_output | tojson(indent=2) }}</pre>
-</div>
-{% endif %}
+<nav class="top-nav">
+  <a href="/" class="brand">
+    <div class="brand-logo">▲</div>
+    <span class="brand-title">TraceForge</span>
+  </a>
+  <a href="/" class="nav-back">← All Traces</a>
+</nav>
 
-{% if read_only %}
-<div class="fork-card read-only-fork">
-  <h3>Fork this Trace (Disabled)</h3>
-  <p class="fork-desc" style="color:#777">Forking and sandbox execution are disabled in read-only demo mode.</p>
-  <fieldset disabled style="border:none; padding:0; margin:0;">
-    <div class="form-row">
-      <label for="step_index"><strong>Branch Step:</strong></label>
-      <select name="step_index" id="step_index" disabled>
-        {% for step in steps %}
-        <option value="{{ step.index }}">Step {{ step.index }} – {{ step.node_name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="override_type"><strong>Override Target:</strong></label>
-      <select name="override_type" id="override_type" disabled>
-        <option value="tool_output">Tool Output (e.g. policy text or JSON)</option>
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="override_value"><strong>Override Content:</strong></label>
-      <textarea name="override_value" id="override_value" rows="3" disabled placeholder="Disabled in read-only demo"></textarea>
-    </div>
-    <button type="button" class="btn-fork" disabled style="opacity:0.5; cursor:not-allowed;">Fork Disabled (Read-Only Demo)</button>
-  </fieldset>
-</div>
-{% else %}
-<div class="fork-card">
-  <h3>Fork this Trace</h3>
-  <p class="fork-desc">Choose a step to branch from, specify replacement tool output or LLM prompt, and run forward safely in the sandbox.</p>
-  <form method="POST" action="/traces/{{ trace.id }}/fork">
-    <div class="form-row">
-      <label for="step_index"><strong>Branch Step:</strong></label>
-      <select name="step_index" id="step_index">
-        {% for step in steps %}
-        <option value="{{ step.index }}">Step {{ step.index }} – {{ step.node_name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="override_type"><strong>Override Target:</strong></label>
-      <select name="override_type" id="override_type">
-        <option value="tool_output">Tool Output (e.g. policy text or JSON)</option>
-        <option value="prompt">LLM Prompt</option>
-        <option value="model">Model Name</option>
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="override_value"><strong>Override Content:</strong></label>
-      <textarea name="override_value" id="override_value" rows="3" placeholder="Enter replacement text (e.g. 7-day refund policy) or valid JSON"></textarea>
-    </div>
-    <button type="submit" class="btn-fork">Fork Trace →</button>
-  </form>
-</div>
-{% endif %}
+<div class="page-container">
+  {% if read_only %}
+  <div class="read-only-banner">
+    <span>🔒 Read-only demo mode: Mutating operations (forking, test generation) are disabled.</span>
+  </div>
+  {% endif %}
 
-{% for step in steps %}
-<div class="step">
-  <div class="step-header">
-    <h3>Step {{ step.index }} – <code>{{ step.node_name }}</code></h3>
-    <span class="step-metrics">
-      {% if step.model %}model: {{ step.model }} &nbsp;{% endif %}
-      {% if step.input_tokens %}in: {{ step.input_tokens }} tok &nbsp;{% endif %}
-      {% if step.output_tokens %}out: {{ step.output_tokens }} tok &nbsp;{% endif %}
-      {% if step.latency_ms %}⏱ {{ "%.1f"|format(step.latency_ms) }} ms{% endif %}
-    </span>
+  <div class="summary-card">
+    <div class="summary-top">
+      <h1>Trace #{{ trace.id }} – {{ trace.agent_name }}</h1>
+      <span class="status-badge status-{{ trace.status.value }}">{{ trace.status.value }}</span>
+    </div>
+    <div class="meta-pills">
+      <div class="meta-item">Run&nbsp;ID:&nbsp;<code>{{ trace.run_id }}</code></div>
+      <div class="meta-item">Type:&nbsp;<strong>{{ trace.run_type.value }}</strong></div>
+      <div class="meta-item">Created:&nbsp;{{ trace.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</div>
+      {% if trace.description %}<div class="meta-item">{{ trace.description }}</div>{% endif %}
+      {% if trace.agent_version %}<div class="meta-item">v{{ trace.agent_version }}</div>{% endif %}
+      {% if trace.parent_trace_id %}
+      <div class="meta-item">Fork of <a href="/trace/{{ trace.parent_trace_id }}">#{{ trace.parent_trace_id }}</a> @step {{ trace.fork_step }}</div>
+      {% endif %}
+    </div>
   </div>
 
-  {% for ev in step.sorted_events %}
-  <div class="event">
-    <div class="event-header">
-      <span class="badge badge-{{ ev.kind.value }}">{{ ev.kind.value }}</span>
-      <span class="badge badge-src">{{ ev.source.value }}</span>
-      <span style="font-size:.78rem;color:#888">seq {{ ev.seq }} | hash {{ ev.input_hash[:12] }}…</span>
-      {% if ev.error %}<span style="color:#c0392b;font-weight:700;font-size:.78rem">ERROR</span>{% endif %}
+  {% if trace.final_output %}
+  <div class="final-output">
+    <h3>Final Output</h3>
+    <pre>{{ trace.final_output | tojson(indent=2) }}</pre>
+  </div>
+  {% endif %}
+
+  <!-- Time-Travel Fork Studio -->
+  {% if read_only %}
+  <div class="fork-card read-only-fork">
+    <h3>Fork this Trace (Disabled)</h3>
+    <p class="fork-desc">Forking and sandbox execution are disabled in read-only demo mode.</p>
+    <div class="read-only-banner" style="margin-bottom: 0.8rem;">
+      <span>🔒 Mutating operations are disabled in read-only demo mode.</span>
+    </div>
+    <fieldset disabled style="border:none; padding:0; margin:0;">
+      <div class="form-row">
+        <label for="step_index">Branch Step:</label>
+        <select name="step_index" id="step_index" disabled>
+          {% for step in steps %}
+          <option value="{{ step.index }}">Step {{ step.index }} – {{ step.node_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="override_value">Override Content:</label>
+        <textarea name="override_value" id="override_value" rows="3" disabled placeholder="Disabled in read-only demo"></textarea>
+      </div>
+      <button type="button" class="btn-fork" disabled>Fork Disabled</button>
+    </fieldset>
+  </div>
+  {% else %}
+  <div class="fork-card">
+    <h3>Fork this Trace</h3>
+    <p class="fork-desc">Choose a step to branch from, specify replacement tool output or LLM prompt, and run forward safely in the sandbox.</p>
+    <form method="POST" action="/traces/{{ trace.id }}/fork">
+      <div class="form-row">
+        <label for="step_index">Branch Step:</label>
+        <select name="step_index" id="step_index">
+          {% for step in steps %}
+          <option value="{{ step.index }}">Step {{ step.index }} – {{ step.node_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="override_type">Override Target:</label>
+        <select name="override_type" id="override_type">
+          <option value="tool_output">Tool Output (e.g. policy text or JSON)</option>
+          <option value="prompt">LLM Prompt</option>
+          <option value="model">Model Name</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="override_value">Override Content:</label>
+        <textarea name="override_value" id="override_value" rows="3" placeholder="Enter replacement text (e.g. 7-day refund policy) or valid JSON"></textarea>
+      </div>
+      <button type="submit" class="btn-fork">Fork Trace →</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <!-- Timeline -->
+  <div class="timeline-label">Execution Graph ({{ steps | length }} nodes)</div>
+
+  {% for step in steps %}
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-node-name">Step {{ step.index }} – <code>{{ step.node_name }}</code></div>
+      <div class="step-metrics">
+        {% if step.model %}model: {{ step.model }} &nbsp;{% endif %}
+        {% if step.input_tokens %}in: {{ step.input_tokens }} tok &nbsp;{% endif %}
+        {% if step.output_tokens %}out: {{ step.output_tokens }} tok &nbsp;{% endif %}
+        {% if step.latency_ms %}⏱ {{ "%.1f"|format(step.latency_ms) }} ms &nbsp;|&nbsp;{% endif %}
+        {{ step.sorted_events | length }} events
+      </div>
     </div>
 
-    {% if ev.error %}
-    <div class="error-box">
-      <strong>Error:</strong> {{ ev.error }}
+    {% if step.state_before or step.state_after %}
+    <div class="step-states">
+      <div class="state-box">
+        <h4>State Before</h4>
+        <pre>{{ step.state_before | tojson(indent=2) if step.state_before is mapping else step.state_before }}</pre>
+      </div>
+      <div class="state-box">
+        <h4>State After</h4>
+        <pre>{{ step.state_after | tojson(indent=2) if step.state_after is mapping else step.state_after }}</pre>
+      </div>
     </div>
     {% endif %}
 
-    {% if ev.raw_input %}
-    <details style="margin-top:.3rem">
-      <summary>Input</summary>
-      <pre>{{ ev.raw_input }}</pre>
-    </details>
-    {% endif %}
+    {% for ev in step.sorted_events %}
+    <div class="event-row">
+      <div class="event-meta">
+        <span class="badge badge-{{ ev.kind.value }}">{{ ev.kind.value }}</span>
+        <span class="badge badge-src">{{ ev.source.value }}</span>
+        <span style="color:var(--text-muted)">seq {{ ev.seq }} | hash {{ ev.input_hash[:12] }}…</span>
+        {% if ev.error %}<span style="color:var(--accent-coral); font-weight:700;">ERROR</span>{% endif %}
+      </div>
 
-    {% if ev.raw_output %}
-    <details style="margin-top:.3rem">
-      <summary>Output</summary>
-      <pre>{{ ev.raw_output }}</pre>
-    </details>
-    {% endif %}
+      {% if ev.error %}
+      <div class="error-callout">
+        <strong>Error:</strong> {{ ev.error }}
+      </div>
+      {% endif %}
+
+      {% if ev.raw_input %}
+      <details>
+        <summary>Input</summary>
+        <pre>{{ ev.raw_input }}</pre>
+      </details>
+      {% endif %}
+
+      {% if ev.raw_output %}
+      <details open>
+        <summary>Output</summary>
+        <pre>{{ ev.raw_output }}</pre>
+      </details>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
   {% endfor %}
+
 </div>
-{% endfor %}
 
 </body>
 </html>

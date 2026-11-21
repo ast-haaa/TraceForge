@@ -24,7 +24,7 @@ from .diff import diff_traces
 from .fork import fork_trace
 from .models import Event, GeneratedTest, Step, Trace, TraceRunType, TraceStatus
 from .redact import redact_sensitive
-from .test_gen import generate_test, sanitize_trace_id, validate_test
+from .test_gen import generate_test, sanitize_paths, sanitize_trace_id, validate_test
 
 init_db()
 
@@ -32,6 +32,7 @@ app = FastAPI(title="AgentReplay")
 
 _TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 templates = Jinja2Templates(directory=_TEMPLATE_DIR)
+templates.env.filters["sanitize_paths"] = sanitize_paths
 
 
 def is_read_only() -> bool:
@@ -266,6 +267,9 @@ def view_generated_test(
     gen_test = db.query(GeneratedTest).filter(GeneratedTest.id == test_id).first()
     if not gen_test:
         raise HTTPException(status_code=404, detail="Generated test not found")
+
+    if gen_test.pytest_output:
+        gen_test.pytest_output = sanitize_paths(gen_test.pytest_output)
 
     return templates.TemplateResponse(
         request=request,

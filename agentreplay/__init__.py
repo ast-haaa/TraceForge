@@ -30,7 +30,7 @@ from .replay import (
     calculate_replay_fidelity,
 )
 from .sdk import Recorder, record_trace
-from .test_gen import generate_test, sanitize_trace_id, validate_test
+from .test_gen import generate_test, sanitize_paths, sanitize_trace_id, validate_test
 
 __all__ = [
     "AgentRegistration",
@@ -63,6 +63,7 @@ __all__ = [
     "redact_sensitive",
     "register_agent",
     "sandbox_mode",
+    "sanitize_paths",
     "sanitize_trace_id",
     "strip_volatile_fields",
     "validate_test",

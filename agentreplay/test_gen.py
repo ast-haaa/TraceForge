@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import subprocess
 import sys
 from typing import Any
@@ -49,6 +50,83 @@ def sanitize_trace_id(trace_id: Any) -> int:
             raise ValueError(f"Trace ID must be a positive integer, got: {val}")
         return val
     raise TypeError(f"Trace ID must be an integer, got: {type(trace_id).__name__}")
+
+
+def sanitize_paths(
+    text: str | None,
+    project_root: pathlib.Path | None = None,
+    python_exe: str | None = None,
+) -> str:
+    """Replace machine-specific local paths with neutral placeholders.
+
+    Replaces:
+    - Python executable and runtime paths with <PYTHON>
+    - Project root directory with <PROJECT>
+    - User home directory and user profiles with <USER_HOME>
+    Handles Windows backslashes, POSIX forward slashes, and case-insensitivity.
+    """
+    if text is None:
+        return ""
+    if not text:
+        return ""
+
+    root = str(project_root or _PROJECT_ROOT)
+    home = str(pathlib.Path.home())
+    py_exes = [p for p in [python_exe, sys.executable] if p]
+
+    result = str(text)
+
+    # 1. Python executable paths (specific path first)
+    for pe in py_exes:
+        for p_str in {pe, str(pathlib.Path(pe).resolve())}:
+            if not p_str:
+                continue
+            p_fwd = p_str.replace("\\", "/")
+            p_back = p_str.replace("/", "\\")
+            result = re.sub(re.escape(p_fwd), "<PYTHON>", result, flags=re.IGNORECASE)
+            result = re.sub(re.escape(p_back), "<PYTHON>", result, flags=re.IGNORECASE)
+
+    # 2. Project root paths
+    for p_str in {root, str(pathlib.Path(root).resolve())}:
+        if not p_str:
+            continue
+        p_fwd = p_str.replace("\\", "/")
+        p_back = p_str.replace("/", "\\")
+        result = re.sub(re.escape(p_fwd), "<PROJECT>", result, flags=re.IGNORECASE)
+        result = re.sub(re.escape(p_back), "<PROJECT>", result, flags=re.IGNORECASE)
+
+    # 3. User home paths
+    for p_str in {home, str(pathlib.Path(home).resolve())}:
+        if not p_str:
+            continue
+        p_fwd = p_str.replace("\\", "/")
+        p_back = p_str.replace("/", "\\")
+        result = re.sub(re.escape(p_fwd), "<USER_HOME>", result, flags=re.IGNORECASE)
+        result = re.sub(re.escape(p_back), "<USER_HOME>", result, flags=re.IGNORECASE)
+
+    # 4. Generic user home directory patterns
+    # Windows: C:\Users\<username> or C:/Users/<username>
+    result = re.sub(
+        r"[A-Za-z]:[/\\]Users[/\\][A-Za-z0-9_.-]+",
+        "<USER_HOME>",
+        result,
+        flags=re.IGNORECASE,
+    )
+    # POSIX: /home/<username> or /Users/<username> (macOS)
+    result = re.sub(r"/(?:home|Users)/[A-Za-z0-9_.-]+", "<USER_HOME>", result)
+
+    # 5. Generic project paths
+    result = re.sub(
+        r"[A-Za-z]:[/\\]Projects[/\\][A-Za-z0-9_.-]+",
+        "<PROJECT>",
+        result,
+        flags=re.IGNORECASE,
+    )
+    # Catch any remaining drive:\Projects or drive:\Users
+    result = re.sub(r"[A-Za-z]:[/\\]Projects", "<PROJECT>", result, flags=re.IGNORECASE)
+    result = re.sub(r"[A-Za-z]:[/\\]Users", "<USER_HOME>", result, flags=re.IGNORECASE)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -263,11 +341,17 @@ def generate_test(
             f"Regression test for Trace #{clean_failed_id} "
             f"(diff against #{clean_fixed_id} diverged at step {diff.first_divergent_step})"
         )
+        try:
+            rel_file_path = file_path.resolve().relative_to(_PROJECT_ROOT.resolve())
+            stored_file_path = rel_file_path.as_posix()
+        except ValueError:
+            stored_file_path = str(file_path)
+
         gen_test = GeneratedTest(
             trace_id=clean_failed_id,
             description=desc,
             test_code=test_code,
-            file_path=str(file_path),
+            file_path=stored_file_path,
             passes_on_fixed=None,
             fails_on_buggy=None,
             fixed_agent_version=fixed_trace.agent_version or "fixed",
@@ -292,6 +376,7 @@ def validate_test(
     generated_test_id: int,
     db: Session | None = None,
     timeout: int = 30,
+    python_executable: str | None = None,
 ) -> GeneratedTest:
     """Run the generated test file via pytest subprocess against buggy and fixed variants.
 
@@ -313,6 +398,9 @@ def validate_test(
             raise ValueError(f"GeneratedTest #{generated_test_id} not found")
 
         file_path = pathlib.Path(gen_test.file_path)
+        if not file_path.is_absolute():
+            file_path = _PROJECT_ROOT / file_path
+
         if not file_path.exists():
             raise FileNotFoundError(f"Generated test file not found at {file_path}")
 
@@ -325,12 +413,14 @@ def validate_test(
         base_env["PYTHONPATH"] = cwd
         base_env["DATABASE_URL"] = "sqlite:///:memory:"
 
+        py_exe = python_executable or sys.executable
+
         # 1. Run against BUGGY variant (must FAIL)
         env_buggy = base_env.copy()
         env_buggy["AGENTREPLAY_AGENT"] = "demo_agent.variants:buggy_agent"
 
         cmd = [
-            sys.executable,
+            py_exe,
             "-m",
             "pytest",
             "-o",
@@ -376,9 +466,15 @@ def validate_test(
             f"{fixed_output}"
         )
 
+        sanitized_output = sanitize_paths(
+            combined_output,
+            project_root=_PROJECT_ROOT,
+            python_exe=py_exe,
+        )
+
         gen_test.fails_on_buggy = fails_on_buggy
         gen_test.passes_on_fixed = passes_on_fixed
-        gen_test.pytest_output = combined_output
+        gen_test.pytest_output = sanitized_output
 
         if fails_on_buggy and passes_on_fixed:
             gen_test.status = "valid"
